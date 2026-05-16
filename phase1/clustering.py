@@ -1,0 +1,177 @@
+"""
+phase1/clustering.py
+====================
+DBSCAN-based clustering of residual point clouds.
+
+After background subtraction, the residual point cloud is clustered to
+isolate distinct moving objects.  The pipeline then selects the single
+cluster most likely to be the monitored subject and passes its frame
+history to the respiratory analyser.
+
+Usage
+-----
+    from phase1.clustering import cluster_residuals, select_subject_cluster
+    import numpy as np
+
+    residuals = np.random.randn(200, 3)
+    clusters  = cluster_residuals(residuals, config)
+    bbox = np.array([[-1.5, -1.5, 0.0], [1.5, 1.5, 2.5]])
+    subject   = select_subject_cluster(clusters, bbox)
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import List, Optional
+
+import numpy as np
+from sklearn.cluster import DBSCAN
+
+
+@dataclass
+class Cluster:
+    """A single labelled cluster from the residual point cloud.
+
+    Attributes
+    ----------
+    points : np.ndarray
+        Shape (N, 3) — XYZ coordinates of points in this cluster.
+    centroid : np.ndarray
+        Shape (3,) — mean XYZ of the cluster.
+    bbox_min : np.ndarray
+        Shape (3,) — axis-aligned bounding box minimum corner.
+    bbox_max : np.ndarray
+        Shape (3,) — axis-aligned bounding box maximum corner.
+    n_points : int
+        Number of points.
+    """
+    points:   np.ndarray
+    centroid: np.ndarray
+    bbox_min: np.ndarray
+    bbox_max: np.ndarray
+    n_points: int
+
+
+def cluster_residuals(points: np.ndarray, config) -> List[Cluster]:
+    """Cluster a residual point cloud using DBSCAN.
+
+    Parameters
+    ----------
+    points : np.ndarray
+        Shape (N, 3) residual points (output of BackgroundModel.subtract).
+    config : KVConfig
+        Pipeline configuration.  Reads ``dbscan_eps``,
+        ``dbscan_min_samples``, ``cluster_min_points``.
+
+    Returns
+    -------
+    list of Cluster
+        Clusters sorted by point count **descending** (largest first).
+        Clusters with fewer than ``config.cluster_min_points`` points are
+        excluded.  DBSCAN noise points (label -1) are discarded.
+        Returns an empty list if *points* is empty or no clusters survive
+        the minimum-points filter.
+    """
+    if points.shape[0] < config.cluster_min_points:
+        return []
+
+    db = DBSCAN(
+        eps=config.dbscan_eps,
+        min_samples=config.dbscan_min_samples,
+        algorithm="ball_tree",
+        n_jobs=1,
+    ).fit(points)
+
+    labels = db.labels_
+    unique_labels = set(labels) - {-1}   # exclude noise
+
+    clusters: List[Cluster] = []
+    for label in unique_labels:
+        mask = labels == label
+        cluster_pts = points[mask]
+        n = cluster_pts.shape[0]
+        if n < config.cluster_min_points:
+            continue
+        centroid = cluster_pts.mean(axis=0)
+        bbox_min = cluster_pts.min(axis=0)
+        bbox_max = cluster_pts.max(axis=0)
+        clusters.append(Cluster(
+            points=cluster_pts,
+            centroid=centroid,
+            bbox_min=bbox_min,
+            bbox_max=bbox_max,
+            n_points=n,
+        ))
+
+    # Sort largest first
+    clusters.sort(key=lambda c: c.n_points, reverse=True)
+    return clusters
+
+
+def select_subject_cluster(
+    clusters: List[Cluster],
+    monitoring_volume_bbox: np.ndarray,
+) -> Optional[np.ndarray]:
+    """Select the most likely subject cluster from a list of clusters.
+
+    The subject cluster is defined as the **largest** cluster whose
+    centroid lies within the specified monitoring volume bounding box.
+
+    Parameters
+    ----------
+    clusters : list of Cluster
+        Output of :func:`cluster_residuals` (already sorted by size).
+    monitoring_volume_bbox : np.ndarray
+        Shape (2, 3) — ``[[xmin, ymin, zmin], [xmax, ymax, zmax]]``
+        in metres.
+
+    Returns
+    -------
+    np.ndarray or None
+        Shape (N, 3) point cloud of the selected cluster, or ``None``
+        if no cluster centroid falls within the monitoring volume.
+    """
+    if not clusters:
+        return None
+
+    bbox_min = monitoring_volume_bbox[0]
+    bbox_max = monitoring_volume_bbox[1]
+
+    for cluster in clusters:   # already sorted largest-first
+        c = cluster.centroid
+        if np.all(c >= bbox_min) and np.all(c <= bbox_max):
+            return cluster.points
+
+    return None
+
+
+def select_chest_subset(
+    subject_points: np.ndarray,
+    y_band_frac: tuple = (0.50, 0.85),
+    min_points: int = 30,
+) -> Optional[np.ndarray]:
+    """Pick the upper ~chest portion of a subject point cloud by Y.
+
+    Subject is assumed to be sitting/standing in the shared frame
+    (X right, **Y up**, Z forward). We keep points whose Y is in
+    ``[y_min + lo*range, y_min + hi*range]`` of the cluster's Y span.
+    The lower bound excludes legs/abdomen (which translate with body
+    sway but don't expand with breath); the upper bound excludes the
+    head (so head bobs don't dominate).
+
+    Returns ``None`` if the subject is too small or the chest band is
+    too sparse — in that case the caller should fall back to the
+    whole-subject centroid.
+    """
+    if subject_points is None or subject_points.shape[0] == 0:
+        return None
+    y = subject_points[:, 1]
+    y_range = float(y.max() - y.min())
+    if y_range < 0.20:                  # cluster too short to call "body"
+        return None
+    band_lo = float(y.min()) + y_band_frac[0] * y_range
+    band_hi = float(y.min()) + y_band_frac[1] * y_range
+    chest = subject_points[(y >= band_lo) & (y <= band_hi)]
+    if chest.shape[0] < min_points:
+        return None
+    return chest

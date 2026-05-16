@@ -1,0 +1,21 @@
+# Large generated artifacts — recreate by re-running pipeline
+phase1/runs/*/residuals.npz
+phase1/runs/*/frames.npz
+phase1/data/background_model*.npz
+
+# Raw Garmin/Polar RRI logs (kept on disk for debugging, not in repo)
+phase1/phase1/output/
+phase1/output/garmin_rri_*.csv
+phase1/output/polar_rri_*.csv
+
+# Python build artefacts
+__pycache__/
+*.pyc
+*.pyo
+
+# Editor / OS
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/

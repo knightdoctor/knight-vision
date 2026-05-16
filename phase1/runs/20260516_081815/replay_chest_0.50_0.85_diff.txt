@@ -1,0 +1,10 @@
+fps=10.013
+chest_y_band=(0.5,0.85)
+whole_body=False
+differential=True
+rr_bpm=32.7085
+snr=2.0970
+confidence=LOW
+frames_total=600
+frames_with_subject=600
+frames_with_chest=599

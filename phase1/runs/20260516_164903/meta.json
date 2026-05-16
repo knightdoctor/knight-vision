@@ -1,0 +1,142 @@
+{
+  "mode": "live",
+  "cmd": "run_phase1.py --mode live --lidar --preview --duration 600",
+  "started_at": "2026-05-16T16:48:46.687740",
+  "ended_at": "2026-05-16T16:50:02.666282",
+  "wall_seconds": 75.98,
+  "frames_seen": 827,
+  "fps_configured": 10.0,
+  "fps_measured": 12.214,
+  "config": {
+    "lidar_fps": 10.0,
+    "radar_fps": 10.0,
+    "camera_fps": 30.0,
+    "voxel_size": 0.02,
+    "background_sigma": 2.0,
+    "background_update_rate": 0.01,
+    "background_min_std": 0.005,
+    "dbscan_eps": 0.2,
+    "dbscan_min_samples": 5,
+    "cluster_min_points": 10,
+    "monitoring_volume": [
+      [
+        -1.5,
+        -1.5,
+        0.0
+      ],
+      [
+        1.5,
+        1.5,
+        2.5
+      ]
+    ],
+    "rr_freq_min": 0.1,
+    "rr_freq_max": 0.67,
+    "fft_window_length": 256,
+    "fft_zero_pad_factor": 16,
+    "snr_high_threshold": 5.0,
+    "snr_medium_threshold": 3.0,
+    "background_save_path": "/home/phil/knight-vision/phase1/data/background_model.npz",
+    "output_dir": "phase1/output"
+  },
+  "sensors": {
+    "lidar": true,
+    "radar": false,
+    "camera": false
+  },
+  "save_raw": false,
+  "viewer": true,
+  "preview_mode": true,
+  "result_final": {
+    "rr_bpm": 6.114389746619752,
+    "snr": 7.37874689509324,
+    "confidence": "HIGH",
+    "settled": true,
+    "settle_note": "settled over last 6 of 16 windows (std<2.0 BPM); dropped 10 pre-settling",
+    "window_n": 6,
+    "windows_total": 16,
+    "fps_used": 12.21440998397692
+  },
+  "rr_windows": [
+    {
+      "rr_bpm": 18.73387111433485,
+      "snr": 1.5741656207446904,
+      "confidence": "LOW"
+    },
+    {
+      "rr_bpm": 15.582903008738572,
+      "snr": 1.8375094482321106,
+      "confidence": "LOW"
+    },
+    {
+      "rr_bpm": 14.02020466165404,
+      "snr": 1.9726729850158282,
+      "confidence": "LOW"
+    },
+    {
+      "rr_bpm": 6.17075512376707,
+      "snr": 2.8028176877188056,
+      "confidence": "LOW"
+    },
+    {
+      "rr_bpm": 6.1442968779679745,
+      "snr": 10.895310782144643,
+      "confidence": "HIGH"
+    },
+    {
+      "rr_bpm": 6.163251277910747,
+      "snr": 13.891930837553845,
+      "confidence": "HIGH"
+    },
+    {
+      "rr_bpm": 6.158699573791971,
+      "snr": 13.230709568653674,
+      "confidence": "HIGH"
+    },
+    {
+      "rr_bpm": 6.147820101715705,
+      "snr": 7.292073936973458,
+      "confidence": "HIGH"
+    },
+    {
+      "rr_bpm": 11.769589305894641,
+      "snr": 6.895223166581965,
+      "confidence": "HIGH"
+    },
+    {
+      "rr_bpm": 11.930985013818503,
+      "snr": 4.514024554401314,
+      "confidence": "MEDIUM"
+    },
+    {
+      "rr_bpm": 8.485005999677274,
+      "snr": 2.8464283101211514,
+      "confidence": "LOW"
+    },
+    {
+      "rr_bpm": 6.132011106696703,
+      "snr": 10.630944865889747,
+      "confidence": "HIGH"
+    },
+    {
+      "rr_bpm": 7.88438114730564,
+      "snr": 5.642222336353308,
+      "confidence": "HIGH"
+    },
+    {
+      "rr_bpm": 6.0967683865428,
+      "snr": 9.270473596591852,
+      "confidence": "HIGH"
+    },
+    {
+      "rr_bpm": 6.093499631930796,
+      "snr": 9.115271453833172,
+      "confidence": "HIGH"
+    },
+    {
+      "rr_bpm": 6.083348722488505,
+      "snr": 4.279562510474134,
+      "confidence": "MEDIUM"
+    }
+  ]
+}

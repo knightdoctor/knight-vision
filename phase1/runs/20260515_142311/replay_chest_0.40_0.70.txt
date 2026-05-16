@@ -1,0 +1,9 @@
+fps=8.1
+chest_y_band=(0.4,0.7)
+whole_body=False
+rr_bpm=83.2939
+snr=4.6293
+confidence=HIGH
+frames_total=600
+frames_with_subject=600
+frames_with_chest=600

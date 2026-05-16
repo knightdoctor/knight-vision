@@ -1,0 +1,54 @@
+{
+  "mode": "live",
+  "cmd": "run_phase1.py --mode live --lidar --preview --rgb --depth --duration 540",
+  "started_at": "2026-05-16T10:17:09.419322",
+  "ended_at": "2026-05-16T10:19:12.222529",
+  "wall_seconds": 122.8,
+  "frames_seen": 439,
+  "fps_estimate": 10.0,
+  "config": {
+    "lidar_fps": 10.0,
+    "radar_fps": 10.0,
+    "camera_fps": 30.0,
+    "voxel_size": 0.02,
+    "background_sigma": 2.0,
+    "background_update_rate": 0.01,
+    "background_min_std": 0.005,
+    "dbscan_eps": 0.2,
+    "dbscan_min_samples": 5,
+    "cluster_min_points": 10,
+    "monitoring_volume": [
+      [
+        -1.5,
+        -1.5,
+        0.0
+      ],
+      [
+        1.5,
+        1.5,
+        2.5
+      ]
+    ],
+    "rr_freq_min": 0.1,
+    "rr_freq_max": 2.0,
+    "fft_window_length": 256,
+    "fft_zero_pad_factor": 16,
+    "snr_high_threshold": 3.0,
+    "snr_medium_threshold": 1.5,
+    "background_save_path": "/home/phil/knight-vision/phase1/data/background_model.npz",
+    "output_dir": "phase1/output"
+  },
+  "sensors": {
+    "lidar": true,
+    "radar": false,
+    "camera": true
+  },
+  "save_raw": false,
+  "viewer": true,
+  "preview_mode": true,
+  "result_final": {
+    "rr_bpm": 0.0,
+    "snr": 0.0,
+    "confidence": "LOW"
+  }
+}
