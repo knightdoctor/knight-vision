@@ -72,10 +72,14 @@ class KVConfig:
     cluster_min_points: int = 10
 
     # ── Monitoring volume (metres) ───────────────────────────────────────────
+    # 2026-05-17: tightened Z from (0.0, 2.5) → (0.5, 2.0) after sofa at 2-3m
+    # was contaminating subject selection — cluster picker bounced between
+    # Phil at ~1m and sofa at 2-3m frame-to-frame. New range covers a seated
+    # subject at 1-1.8m with slack; tune up if subject sits further back.
     monitoring_volume: np.ndarray = field(
         default_factory=lambda: np.array(
-            [[-1.5, -1.5, 0.0],
-             [ 1.5,  1.5, 2.5]],
+            [[-1.5, -1.5, 0.5],
+             [ 1.5,  1.5, 2.0]],
             dtype=float,
         )
     )
@@ -107,6 +111,15 @@ class KVConfig:
     # ── SNR / confidence thresholds ──────────────────────────────────────────
     snr_high_threshold: float = 5.0    # tightened 2026-05-16 per M1 requirement
     snr_medium_threshold: float = 3.0  # LOW reports value with caveat, never suppress
+
+    # ── Settled-median window selection (PR M 2026-05-17) ────────────────────
+    # settled_median picks per-window estimates that BOTH have SNR >= this
+    # threshold AND form the longest stable subsequence anywhere in the
+    # history (std < settled_median_std_threshold_bpm BPM). Defaults to
+    # snr_medium_threshold so we only trust MEDIUM/HIGH windows.
+    settled_median_min_snr: float = 3.0
+    settled_median_std_threshold_bpm: float = 2.0
+    settled_median_min_window: int = 4
 
     # ── File paths ───────────────────────────────────────────────────────────
     background_save_path: Path = Path("phase1/data/background_model.npz")
