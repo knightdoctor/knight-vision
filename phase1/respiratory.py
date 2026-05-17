@@ -197,20 +197,38 @@ def classify_confidence(snr: float, config) -> str:
 def settled_median(
     rr_history: list,
     config,
-    min_window: int = 4,
-    std_threshold_bpm: float = 2.0,
+    min_window: int = None,
+    std_threshold_bpm: float = None,
+    min_snr: float = None,
 ) -> Dict:
     """Compute the final RR estimate from a per-window history.
 
-    Finds the longest trailing window of length ≥ ``min_window`` where the
-    per-window BPM std is below ``std_threshold_bpm`` (considered settled),
-    then returns the median BPM over that window. Pre-settling windows are
-    dropped — they typically reflect transient sensor/subject startup.
+    PR M algorithm (2026-05-17): SNR-gated longest stable subsequence.
 
-    Returns a dict with keys: ``rr_bpm``, ``snr`` (median over settled
-    window), ``confidence``, ``settled``, ``settle_note``, ``window_n``,
-    ``windows_total``.
+    1. **SNR gate**: drop windows whose snr < min_snr. Low-SNR windows are
+       susceptible to centroid-degenerate-to-band-midpoint artifacts (e.g.
+       a 20 BPM "estimate" when the in-band spectrum is essentially flat).
+    2. **Longest stable subsequence**: among the remaining high-SNR
+       windows, find the longest contiguous run (in original time order)
+       whose BPMs have std < std_threshold_bpm. Median of those is the
+       final estimate.
+
+    Replaces PR A's "trailing-only" rule (deferred PR G) — trailing was
+    fragile to late noise, and SNR-blindness let artifact runs win over
+    short real-signal runs.
+
+    Returns a dict with keys: ``rr_bpm``, ``snr``, ``confidence``,
+    ``settled``, ``settle_note``, ``window_n``, ``windows_total``.
     """
+    # Defaults from config (kwargs override for unit-test convenience)
+    if min_window is None:
+        min_window = getattr(config, "settled_median_min_window", 4)
+    if std_threshold_bpm is None:
+        std_threshold_bpm = getattr(
+            config, "settled_median_std_threshold_bpm", 2.0)
+    if min_snr is None:
+        min_snr = getattr(config, "settled_median_min_snr", 3.0)
+
     n_total = len(rr_history)
     if n_total == 0:
         return {
@@ -219,60 +237,84 @@ def settled_median(
             "window_n": 0, "windows_total": 0,
         }
 
-    bpms = np.array([h["rr_bpm"] for h in rr_history], dtype=float)
-    snrs = np.array([h["snr"]    for h in rr_history], dtype=float)
+    bpms_all = np.array([h["rr_bpm"] for h in rr_history], dtype=float)
+    snrs_all = np.array([h["snr"]    for h in rr_history], dtype=float)
 
-    if n_total < min_window:
-        # Not enough windows to assess convergence — fall back to last.
-        snr = float(snrs[-1])
+    # ── SNR gate ─────────────────────────────────────────────────────────
+    hi_mask = snrs_all >= min_snr
+    n_hi    = int(hi_mask.sum())
+
+    if n_hi < min_window:
+        # Not enough trustworthy windows. Fall back to the last min_window
+        # entries regardless of SNR — flagged as not-settled so the caller
+        # knows the result is unreliable.
+        sel_bpms = bpms_all[-min_window:] if n_total >= min_window else bpms_all
+        sel_snrs = snrs_all[-min_window:] if n_total >= min_window else snrs_all
+        snr = float(np.median(sel_snrs)) if len(sel_snrs) else 0.0
         return {
-            "rr_bpm": float(bpms[-1]),
+            "rr_bpm": float(np.median(sel_bpms)) if len(sel_bpms) else 0.0,
             "snr": snr,
             "confidence": classify_confidence(snr, config),
             "settled": False,
-            "settle_note": f"insufficient windows for settled median "
-                           f"(have {n_total}, need ≥{min_window}) — using last",
-            "window_n": 1,
+            "settle_note": (f"only {n_hi} of {n_total} windows above SNR "
+                            f"{min_snr}; need ≥{min_window} — using last "
+                            f"{min(min_window, n_total)} regardless"),
+            "window_n": min(min_window, n_total),
             "windows_total": n_total,
         }
 
-    # Expand the trailing window backwards as long as its std stays low.
-    best_n = 0
-    for n in range(min_window, n_total + 1):
-        if float(np.std(bpms[-n:])) < std_threshold_bpm:
-            best_n = n
-        else:
-            break
+    # Indices (in original time order) of windows that passed the SNR gate
+    hi_idx = np.where(hi_mask)[0]
+    bpms_hi = bpms_all[hi_idx]
 
-    if best_n == 0:
-        # Never settled — use the last min_window as a least-bad fallback.
-        sel_bpms = bpms[-min_window:]
-        sel_snrs = snrs[-min_window:]
-        snr = float(np.median(sel_snrs))
+    # ── Longest stable subsequence within high-SNR windows ───────────────
+    # We sweep over contiguous (by hi_idx position) subsets of size
+    # >= min_window and pick the longest whose BPM std < threshold.
+    best_start = best_end = -1
+    best_len = 0
+    for start in range(len(bpms_hi) - min_window + 1):
+        # Extend rightwards as long as std stays low
+        end = start + min_window
+        while (end <= len(bpms_hi)
+               and float(np.std(bpms_hi[start:end])) < std_threshold_bpm):
+            end += 1
+        run_len = end - 1 - start
+        if run_len >= min_window and run_len > best_len:
+            best_len = run_len
+            best_start = start
+            best_end = end - 1
+
+    if best_len == 0:
+        # High-SNR windows exist but never form a stable run — report
+        # median of all high-SNR windows, flagged as not-settled.
+        snr = float(np.median(snrs_all[hi_idx]))
         return {
-            "rr_bpm": float(np.median(sel_bpms)),
+            "rr_bpm": float(np.median(bpms_hi)),
             "snr": snr,
             "confidence": classify_confidence(snr, config),
             "settled": False,
-            "settle_note": f"did not settle "
-                           f"(min std over {min_window}+ windows ≥ "
-                           f"{std_threshold_bpm} BPM) — median of last {min_window}",
-            "window_n": min_window,
+            "settle_note": (f"{n_hi} high-SNR windows but no stable run of "
+                            f"≥{min_window} (std<{std_threshold_bpm} BPM) "
+                            f"— median of all high-SNR"),
+            "window_n": n_hi,
             "windows_total": n_total,
         }
 
-    sel_bpms = bpms[-best_n:]
-    sel_snrs = snrs[-best_n:]
+    sel_bpms = bpms_hi[best_start:best_end]
+    sel_snrs = snrs_all[hi_idx[best_start:best_end]]
     snr = float(np.median(sel_snrs))
-    pre_drop = n_total - best_n
+    # Time-range note uses the ORIGINAL indices for readability
+    orig_lo = int(hi_idx[best_start])
+    orig_hi = int(hi_idx[best_end - 1])
     return {
         "rr_bpm": float(np.median(sel_bpms)),
         "snr": snr,
         "confidence": classify_confidence(snr, config),
         "settled": True,
-        "settle_note": f"settled over last {best_n} of {n_total} windows "
-                       f"(std<{std_threshold_bpm} BPM); dropped {pre_drop} pre-settling",
-        "window_n": best_n,
+        "settle_note": (f"settled over {best_len} high-SNR windows "
+                        f"(indices {orig_lo}-{orig_hi} of {n_total}, "
+                        f"SNR≥{min_snr}, std<{std_threshold_bpm} BPM)"),
+        "window_n": best_len,
         "windows_total": n_total,
     }
 
