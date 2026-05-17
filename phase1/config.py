@@ -94,6 +94,16 @@ class KVConfig:
     rr_window_seconds: float = 20.0
     rr_window_overlap: float = 0.75
 
+    # ── Chest sub-region (PR L 2026-05-17) ───────────────────────────────────
+    # Y-band fraction of subject cluster Y span used as the "chest" region.
+    # Tightened from (0.50, 0.85) → (0.55, 0.75) based on offline replay of
+    # run 20260517_064421: narrowed band excludes head/neck (top 25%) and
+    # lower abdomen (bottom 55%), closing LiDAR-vs-Polar Δ by ~1 BPM and
+    # raising SNR. Wider re-introduces head/arm noise; tighter (e.g. 0.60-
+    # 0.70 sternum-only) is too sparse and noisier in this fps regime.
+    chest_y_band_min: float = 0.55
+    chest_y_band_max: float = 0.75
+
     # ── SNR / confidence thresholds ──────────────────────────────────────────
     snr_high_threshold: float = 5.0    # tightened 2026-05-16 per M1 requirement
     snr_medium_threshold: float = 3.0  # LOW reports value with caveat, never suppress

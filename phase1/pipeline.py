@@ -230,7 +230,11 @@ class Phase1Pipeline:
             # Falls back to whole subject when chest band can't be isolated
             # (cluster too short, too few chest points).
             if subject is not None:
-                chest = select_chest_subset(subject)
+                chest = select_chest_subset(
+                    subject,
+                    y_band_frac=(self.config.chest_y_band_min,
+                                 self.config.chest_y_band_max),
+                )
                 analysis_pts = chest if chest is not None else subject
                 cz = float(analysis_pts[:, 2].mean())
                 subject_pts = subject.shape[0]   # report full subject count
