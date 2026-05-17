@@ -87,6 +87,14 @@ def _make_parser() -> argparse.ArgumentParser:
     p.add_argument("--depth", action="store_true",
                    help="Stream a JET-coloured depth heatmap (0-3 m) to a "
                         "viewer panel (~2 Hz). Implies --lidar + --viewer.")
+    p.add_argument("--validation", action="store_true",
+                   help="Validation capture mode (PR N follow-up). Bundles "
+                        "--save-raw + Polar-GT pre-check; writes artefacts "
+                        "to validation_runs/<ts>/ instead of runs/<ts>/. "
+                        "Aborts before recording if Polar GT not flowing.")
+    p.add_argument("--validation-gt-timeout", type=float, default=30.0,
+                   help="Seconds to wait for first Polar GT entry before "
+                        "aborting in --validation mode (default 30).")
     return p
 
 
@@ -188,7 +196,11 @@ class _Orchestrator:
             self.run_dir = self._explicit_run_dir
         else:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self.run_dir = _HERE / "runs" / ts
+            # Validation captures live in a separate subtree so they don't
+            # mix with exploratory runs in runs/INDEX.md analyses.
+            subdir = "validation_runs" if getattr(self.args, "validation",
+                                                  False) else "runs"
+            self.run_dir = _HERE / subdir / ts
         self.run_dir.mkdir(parents=True, exist_ok=True)
 
         self.log_path = self.run_dir / "per_frame.log"
@@ -489,6 +501,37 @@ class _Orchestrator:
         if self.preview_mode and not self._recordings_done:
             print("[run] session ended with no recordings saved")
 
+    def validation_polar_precheck(self, timeout_s: float) -> None:
+        """Block until Polar GT entries are flowing into the viewer.
+
+        Required for --validation mode. Aborts the run if no entry with
+        source='polar_h10' arrives within timeout_s. Forces the operator
+        to confirm Polar bridge is healthy before consuming a validation
+        capture; without it, the run produces unfalsifiable LiDAR-only
+        numbers that can't be compared against ground truth.
+        """
+        if self._viewer is None:
+            sys.exit("[validation] --validation requires --viewer (auto-set "
+                     "via _resolve_flag_implications; check args)")
+        print(f"[validation] waiting up to {timeout_s:.0f}s for Polar GT "
+              f"(source='polar_h10') from the viewer's /gt endpoint…")
+        t0 = time.time()
+        while time.time() - t0 < timeout_s:
+            hist = self._viewer.get_gt_history()
+            polar_n = sum(1 for e in hist
+                          if e.get("source") == "polar_h10")
+            if polar_n >= 2:
+                # Two entries = at least one update cycle confirmed live,
+                # not just a stale cached value.
+                print(f"[validation] Polar GT confirmed "
+                      f"({polar_n} entries in {time.time()-t0:.1f}s).")
+                return
+            time.sleep(0.5)
+        sys.exit("[validation] ABORT: no Polar GT received within "
+                 f"{timeout_s:.0f}s. Start polar_bridge.py on the Mac, "
+                 "pointed at this Jetson's /gt endpoint, then retry. "
+                 "Or omit --validation for exploratory capture.")
+
 
 def _config_as_dict(cfg: KVConfig) -> dict:
     out = {}
@@ -583,6 +626,10 @@ def run_live(config: KVConfig, args) -> None:
     orch = _Orchestrator(args, config, mode="live", fps_estimate=fps)
     orch.pipe = pipe
 
+    # Validation mode: confirm Polar GT is flowing BEFORE we burn a capture.
+    if getattr(args, "validation", False):
+        orch.validation_polar_precheck(args.validation_gt_timeout)
+
     result = pipe.run_live(
         duration_seconds=duration,
         frame_callback=orch.frame_callback,
@@ -607,6 +654,11 @@ def _resolve_flag_implications(args) -> None:
         args.lidar = True
         args.viewer = True
     if args.preview:
+        args.viewer = True
+    if args.validation:
+        # Validation captures must be bulletproof: save raw frames for
+        # ablation, require viewer for GT, and use a separate output tree.
+        args.save_raw = True
         args.viewer = True
 
 
