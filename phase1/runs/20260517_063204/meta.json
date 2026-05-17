@@ -1,0 +1,208 @@
+{
+  "mode": "live",
+  "cmd": "run_phase1.py --mode live --lidar --preview --duration 600",
+  "started_at": "2026-05-17T06:31:06.133196",
+  "ended_at": "2026-05-17T06:33:00.853972",
+  "wall_seconds": 114.72,
+  "frames_seen": 841,
+  "fps_configured": 10.0,
+  "fps_measured": 8.033,
+  "config": {
+    "lidar_fps": 10.0,
+    "radar_fps": 10.0,
+    "camera_fps": 30.0,
+    "voxel_size": 0.02,
+    "background_sigma": 2.0,
+    "background_update_rate": 0.01,
+    "background_min_std": 0.005,
+    "dbscan_eps": 0.2,
+    "dbscan_min_samples": 5,
+    "cluster_min_points": 10,
+    "monitoring_volume": [
+      [
+        -1.5,
+        -1.5,
+        0.0
+      ],
+      [
+        1.5,
+        1.5,
+        2.5
+      ]
+    ],
+    "rr_freq_min": 0.17,
+    "rr_freq_max": 0.5,
+    "fft_window_length": 256,
+    "fft_zero_pad_factor": 16,
+    "rr_window_seconds": 20.0,
+    "rr_window_overlap": 0.75,
+    "snr_high_threshold": 5.0,
+    "snr_medium_threshold": 3.0,
+    "background_save_path": "/home/phil/knight-vision/phase1/data/background_model.npz",
+    "output_dir": "phase1/output"
+  },
+  "sensors": {
+    "lidar": true,
+    "radar": false,
+    "camera": false
+  },
+  "save_raw": false,
+  "viewer": true,
+  "preview_mode": true,
+  "result_final": {
+    "rr_bpm": 20.212117973699026,
+    "snr": 1.325071450343525,
+    "confidence": "LOW",
+    "settled": true,
+    "settle_note": "settled over last 16 of 16 windows (std<2.0 BPM); dropped 0 pre-settling",
+    "window_n": 16,
+    "windows_total": 16,
+    "fps_used": 8.033414975247661
+  },
+  "rr_windows": [
+    {
+      "rr_bpm": 20.97489035529102,
+      "snr": 1.1886063692715585,
+      "confidence": "LOW",
+      "window_samples": 50,
+      "window_seconds": 6.067990541458131,
+      "t_centre": 1778995873.874883,
+      "fps_used": 8.239960108438973
+    },
+    {
+      "rr_bpm": 20.247691426722962,
+      "snr": 1.3040250226001628,
+      "confidence": "LOW",
+      "window_samples": 100,
+      "window_seconds": 12.33405590057373,
+      "t_centre": 1778995877.0076666,
+      "fps_used": 8.107633109993316
+    },
+    {
+      "rr_bpm": 20.421304445684974,
+      "snr": 1.256819045161652,
+      "confidence": "LOW",
+      "window_samples": 150,
+      "window_seconds": 18.346188783645633,
+      "t_centre": 1778995880.0147827,
+      "fps_used": 8.17608505880604
+    },
+    {
+      "rr_bpm": 23.036815993832462,
+      "snr": 3.239390406091304,
+      "confidence": "MEDIUM",
+      "window_samples": 163,
+      "window_seconds": 19.929095957279205,
+      "t_centre": 1778995885.3294625,
+      "fps_used": 8.178996194780396
+    },
+    {
+      "rr_bpm": 22.200436297364114,
+      "snr": 2.5756514037308493,
+      "confidence": "LOW",
+      "window_samples": 162,
+      "window_seconds": 19.952481256484983,
+      "t_centre": 1778995891.6552517,
+      "fps_used": 8.1192909251498
+    },
+    {
+      "rr_bpm": 19.908806706791257,
+      "snr": 1.757438213291333,
+      "confidence": "LOW",
+      "window_samples": 162,
+      "window_seconds": 19.99069145679474,
+      "t_centre": 1778995897.865087,
+      "fps_used": 8.103771715456945
+    },
+    {
+      "rr_bpm": 19.765894280590114,
+      "snr": 1.2218135504387808,
+      "confidence": "LOW",
+      "window_samples": 161,
+      "window_seconds": 19.91802454471588,
+      "t_centre": 1778995904.1816716,
+      "fps_used": 8.083130916851502
+    },
+    {
+      "rr_bpm": 18.53324272707326,
+      "snr": 2.099613479030793,
+      "confidence": "LOW",
+      "window_samples": 162,
+      "window_seconds": 19.974266456365584,
+      "t_centre": 1778995910.1726887,
+      "fps_used": 8.110435512307504
+    },
+    {
+      "rr_bpm": 19.89259856405434,
+      "snr": 1.0926502023210083,
+      "confidence": "LOW",
+      "window_samples": 162,
+      "window_seconds": 19.970409107208255,
+      "t_centre": 1778995916.3288264,
+      "fps_used": 8.112002069177773
+    },
+    {
+      "rr_bpm": 20.6006415694358,
+      "snr": 3.2757397561784867,
+      "confidence": "MEDIUM",
+      "window_samples": 162,
+      "window_seconds": 19.98283014678955,
+      "t_centre": 1778995922.525435,
+      "fps_used": 8.106959765457797
+    },
+    {
+      "rr_bpm": 18.198958562469606,
+      "snr": 2.8581872852045436,
+      "confidence": "LOW",
+      "window_samples": 161,
+      "window_seconds": 19.92313080874356,
+      "t_centre": 1778995928.9395652,
+      "fps_used": 8.081059224353572
+    },
+    {
+      "rr_bpm": 20.33255744761534,
+      "snr": 1.1514900430622812,
+      "confidence": "LOW",
+      "window_samples": 161,
+      "window_seconds": 19.969994032382964,
+      "t_centre": 1778995935.2779875,
+      "fps_used": 8.062095548898284
+    },
+    {
+      "rr_bpm": 20.17654452067509,
+      "snr": 1.026093380181173,
+      "confidence": "LOW",
+      "window_samples": 160,
+      "window_seconds": 19.88802912785457,
+      "t_centre": 1778995941.6917555,
+      "fps_used": 8.045040510118163
+    },
+    {
+      "rr_bpm": 20.090761408368692,
+      "snr": 1.3461178780868874,
+      "confidence": "LOW",
+      "window_samples": 161,
+      "window_seconds": 19.999705367088318,
+      "t_centre": 1778995947.796422,
+      "fps_used": 8.050118591494
+    },
+    {
+      "rr_bpm": 20.99293717183552,
+      "snr": 1.9523037991247227,
+      "confidence": "LOW",
+      "window_samples": 160,
+      "window_seconds": 19.9034494527181,
+      "t_centre": 1778995954.1867604,
+      "fps_used": 8.03880756348743
+    },
+    {
+      "rr_bpm": 19.94819978876338,
+      "snr": 1.0547266934157473,
+      "confidence": "LOW",
+      "window_samples": 160,
+      "window_seconds": 19.916810035705566,
+      "t_centre": 1778995960.4668083,
+      "fps_used": 8.033414975247661
+    }
+  ]
+}

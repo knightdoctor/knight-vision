@@ -1,0 +1,424 @@
+{
+  "mode": "live",
+  "cmd": "run_phase1.py --mode live --lidar --preview --duration 600",
+  "started_at": "2026-05-17T06:42:52.755570",
+  "ended_at": "2026-05-17T06:45:18.567982",
+  "wall_seconds": 145.81,
+  "frames_seen": 2012,
+  "fps_configured": 10.0,
+  "fps_measured": 14.541,
+  "config": {
+    "lidar_fps": 10.0,
+    "radar_fps": 10.0,
+    "camera_fps": 30.0,
+    "voxel_size": 0.02,
+    "background_sigma": 2.0,
+    "background_update_rate": 0.01,
+    "background_min_std": 0.005,
+    "dbscan_eps": 0.2,
+    "dbscan_min_samples": 5,
+    "cluster_min_points": 10,
+    "monitoring_volume": [
+      [
+        -1.5,
+        -1.5,
+        0.0
+      ],
+      [
+        1.5,
+        1.5,
+        2.5
+      ]
+    ],
+    "rr_freq_min": 0.17,
+    "rr_freq_max": 0.5,
+    "fft_window_length": 256,
+    "fft_zero_pad_factor": 16,
+    "rr_window_seconds": 20.0,
+    "rr_window_overlap": 0.75,
+    "snr_high_threshold": 5.0,
+    "snr_medium_threshold": 3.0,
+    "background_save_path": "/home/phil/knight-vision/phase1/data/background_model.npz",
+    "output_dir": "phase1/output"
+  },
+  "sensors": {
+    "lidar": true,
+    "radar": false,
+    "camera": false
+  },
+  "save_raw": false,
+  "viewer": true,
+  "preview_mode": true,
+  "result_final": {
+    "rr_bpm": 17.70869243257308,
+    "snr": 2.661196850690122,
+    "confidence": "LOW",
+    "settled": true,
+    "settle_note": "settled over last 9 of 40 windows (std<2.0 BPM); dropped 31 pre-settling",
+    "window_n": 9,
+    "windows_total": 40,
+    "fps_used": 14.54084288519148
+  },
+  "rr_windows": [
+    {
+      "rr_bpm": 17.117565078281498,
+      "snr": 1.8455281398940515,
+      "confidence": "LOW",
+      "window_samples": 50,
+      "window_seconds": 3.6787664890289307,
+      "t_centre": 1778996578.6105986,
+      "fps_used": 13.591512304223011
+    },
+    {
+      "rr_bpm": 14.458942798827994,
+      "snr": 4.808796282268747,
+      "confidence": "MEDIUM",
+      "window_samples": 100,
+      "window_seconds": 7.292810678482056,
+      "t_centre": 1778996580.417253,
+      "fps_used": 13.712134375715655
+    },
+    {
+      "rr_bpm": 19.077064581518535,
+      "snr": 6.135055305236012,
+      "confidence": "HIGH",
+      "window_samples": 150,
+      "window_seconds": 10.830285787582397,
+      "t_centre": 1778996582.1860142,
+      "fps_used": 13.850050030257227
+    },
+    {
+      "rr_bpm": 17.496766627602057,
+      "snr": 4.065272680180654,
+      "confidence": "MEDIUM",
+      "window_samples": 200,
+      "window_seconds": 14.55301833152771,
+      "t_centre": 1778996584.04739,
+      "fps_used": 13.742853574692427
+    },
+    {
+      "rr_bpm": 16.739281665593968,
+      "snr": 3.4375574707014924,
+      "confidence": "MEDIUM",
+      "window_samples": 250,
+      "window_seconds": 17.958103895187378,
+      "t_centre": 1778996585.750112,
+      "fps_used": 13.921291549437907
+    },
+    {
+      "rr_bpm": 16.14744070149243,
+      "snr": 2.617050292181557,
+      "confidence": "LOW",
+      "window_samples": 281,
+      "window_seconds": 19.994402844905853,
+      "t_centre": 1778996588.120098,
+      "fps_used": 14.053933102162778
+    },
+    {
+      "rr_bpm": 16.432923404154238,
+      "snr": 2.660768173313709,
+      "confidence": "LOW",
+      "window_samples": 281,
+      "window_seconds": 19.948678429467336,
+      "t_centre": 1778996591.6437385,
+      "fps_used": 14.086146157176948
+    },
+    {
+      "rr_bpm": 15.17436035080842,
+      "snr": 2.8063952396190106,
+      "confidence": "LOW",
+      "window_samples": 282,
+      "window_seconds": 19.96851706981659,
+      "t_centre": 1778996595.110816,
+      "fps_used": 14.122230459779965
+    },
+    {
+      "rr_bpm": 16.085485262438993,
+      "snr": 2.4060320165227145,
+      "confidence": "LOW",
+      "window_samples": 284,
+      "window_seconds": 19.97968906826443,
+      "t_centre": 1778996598.4391177,
+      "fps_used": 14.21443542137516
+    },
+    {
+      "rr_bpm": 19.331820013032946,
+      "snr": 2.563602309897363,
+      "confidence": "LOW",
+      "window_samples": 285,
+      "window_seconds": 19.98319798707962,
+      "t_centre": 1778996601.8375676,
+      "fps_used": 14.261981499871553
+    },
+    {
+      "rr_bpm": 17.87491989205514,
+      "snr": 1.6055512887810297,
+      "confidence": "LOW",
+      "window_samples": 285,
+      "window_seconds": 19.941127304597334,
+      "t_centre": 1778996605.2832673,
+      "fps_used": 14.292070636061512
+    },
+    {
+      "rr_bpm": 18.08200476843568,
+      "snr": 1.6837663588571865,
+      "confidence": "LOW",
+      "window_samples": 287,
+      "window_seconds": 19.99399083773295,
+      "t_centre": 1778996608.5733395,
+      "fps_used": 14.35431286976332
+    },
+    {
+      "rr_bpm": 19.025049115773832,
+      "snr": 1.759545743732887,
+      "confidence": "LOW",
+      "window_samples": 288,
+      "window_seconds": 19.95369915301983,
+      "t_centre": 1778996611.8287055,
+      "fps_used": 14.433413964568746
+    },
+    {
+      "rr_bpm": 19.03095492490609,
+      "snr": 2.269163304800251,
+      "confidence": "LOW",
+      "window_samples": 289,
+      "window_seconds": 19.94200635739735,
+      "t_centre": 1778996615.1023734,
+      "fps_used": 14.49202225797092
+    },
+    {
+      "rr_bpm": 15.77510965162321,
+      "snr": 3.2953809965929772,
+      "confidence": "MEDIUM",
+      "window_samples": 290,
+      "window_seconds": 19.932912054061887,
+      "t_centre": 1778996618.3552866,
+      "fps_used": 14.548802463657305
+    },
+    {
+      "rr_bpm": 15.617460398056505,
+      "snr": 3.475262902998574,
+      "confidence": "MEDIUM",
+      "window_samples": 291,
+      "window_seconds": 19.97061843931675,
+      "t_centre": 1778996621.687712,
+      "fps_used": 14.571406533264872
+    },
+    {
+      "rr_bpm": 14.164849367102835,
+      "snr": 3.2165160439587206,
+      "confidence": "MEDIUM",
+      "window_samples": 291,
+      "window_seconds": 19.94832447304445,
+      "t_centre": 1778996625.0650887,
+      "fps_used": 14.587691331831865
+    },
+    {
+      "rr_bpm": 14.25911022949162,
+      "snr": 3.8836142867728585,
+      "confidence": "MEDIUM",
+      "window_samples": 292,
+      "window_seconds": 19.985022853215536,
+      "t_centre": 1778996628.3763027,
+      "fps_used": 14.610941510783311
+    },
+    {
+      "rr_bpm": 14.443078932132694,
+      "snr": 3.5250093693098226,
+      "confidence": "MEDIUM",
+      "window_samples": 292,
+      "window_seconds": 19.959349544926695,
+      "t_centre": 1778996631.7275636,
+      "fps_used": 14.629735269816
+    },
+    {
+      "rr_bpm": 14.749000140373902,
+      "snr": 2.9735272524749408,
+      "confidence": "LOW",
+      "window_samples": 292,
+      "window_seconds": 19.983658800125124,
+      "t_centre": 1778996635.2163498,
+      "fps_used": 14.611938830649557
+    },
+    {
+      "rr_bpm": 15.67135229944704,
+      "snr": 2.2915101066062746,
+      "confidence": "LOW",
+      "window_samples": 291,
+      "window_seconds": 19.936143159185136,
+      "t_centre": 1778996638.737896,
+      "fps_used": 14.596604652988168
+    },
+    {
+      "rr_bpm": 18.053696983504757,
+      "snr": 2.5247903319934006,
+      "confidence": "LOW",
+      "window_samples": 291,
+      "window_seconds": 19.97853156891736,
+      "t_centre": 1778996642.3020444,
+      "fps_used": 14.56563506663014
+    },
+    {
+      "rr_bpm": 16.855103201386708,
+      "snr": 2.6327255601027786,
+      "confidence": "LOW",
+      "window_samples": 291,
+      "window_seconds": 19.99455274561177,
+      "t_centre": 1778996645.7900198,
+      "fps_used": 14.5539639572016
+    },
+    {
+      "rr_bpm": 15.38907397115944,
+      "snr": 2.3244923038133627,
+      "confidence": "LOW",
+      "window_samples": 290,
+      "window_seconds": 19.98146856427193,
+      "t_centre": 1778996649.4622004,
+      "fps_used": 14.513447751209714
+    },
+    {
+      "rr_bpm": 14.887512512417628,
+      "snr": 4.052716637288235,
+      "confidence": "MEDIUM",
+      "window_samples": 290,
+      "window_seconds": 19.97468949317932,
+      "t_centre": 1778996652.881517,
+      "fps_used": 14.51837336940958
+    },
+    {
+      "rr_bpm": 19.21892971051013,
+      "snr": 4.227040105386737,
+      "confidence": "MEDIUM",
+      "window_samples": 290,
+      "window_seconds": 19.963461527457603,
+      "t_centre": 1778996656.2807448,
+      "fps_used": 14.526538877094838
+    },
+    {
+      "rr_bpm": 19.261762868632104,
+      "snr": 3.765640017330869,
+      "confidence": "MEDIUM",
+      "window_samples": 290,
+      "window_seconds": 19.951621795583655,
+      "t_centre": 1778996659.6734748,
+      "fps_used": 14.535159245259566
+    },
+    {
+      "rr_bpm": 15.842074180892373,
+      "snr": 3.409488817889022,
+      "confidence": "MEDIUM",
+      "window_samples": 291,
+      "window_seconds": 19.983486634152275,
+      "t_centre": 1778996662.919783,
+      "fps_used": 14.562023400995187
+    },
+    {
+      "rr_bpm": 14.32579830659304,
+      "snr": 4.509513393328802,
+      "confidence": "MEDIUM",
+      "window_samples": 291,
+      "window_seconds": 19.973930685109107,
+      "t_centre": 1778996666.3105626,
+      "fps_used": 14.568990179631758
+    },
+    {
+      "rr_bpm": 13.757954306847529,
+      "snr": 5.477204687815002,
+      "confidence": "HIGH",
+      "window_samples": 291,
+      "window_seconds": 19.97103845310211,
+      "t_centre": 1778996669.729102,
+      "fps_used": 14.571100079915915
+    },
+    {
+      "rr_bpm": 14.312864768964774,
+      "snr": 4.886637866885285,
+      "confidence": "MEDIUM",
+      "window_samples": 291,
+      "window_seconds": 19.967426403107183,
+      "t_centre": 1778996673.1432886,
+      "fps_used": 14.573735950002888
+    },
+    {
+      "rr_bpm": 15.662057266423634,
+      "snr": 2.6365747396026578,
+      "confidence": "LOW",
+      "window_samples": 291,
+      "window_seconds": 19.97760936543345,
+      "t_centre": 1778996676.6248188,
+      "fps_used": 14.566307443347398
+    },
+    {
+      "rr_bpm": 20.131847704851694,
+      "snr": 1.9571107348246506,
+      "confidence": "LOW",
+      "window_samples": 291,
+      "window_seconds": 19.967047087495978,
+      "t_centre": 1778996680.0028288,
+      "fps_used": 14.57401280844546
+    },
+    {
+      "rr_bpm": 21.82943131329529,
+      "snr": 2.362831857214905,
+      "confidence": "LOW",
+      "window_samples": 291,
+      "window_seconds": 19.961351143893076,
+      "t_centre": 1778996683.4031346,
+      "fps_used": 14.578171482596648
+    },
+    {
+      "rr_bpm": 18.202569568463442,
+      "snr": 2.688541476250938,
+      "confidence": "LOW",
+      "window_samples": 291,
+      "window_seconds": 19.976990513665335,
+      "t_centre": 1778996686.9191284,
+      "fps_used": 14.566758681741394
+    },
+    {
+      "rr_bpm": 16.818191142993342,
+      "snr": 3.096512411617212,
+      "confidence": "MEDIUM",
+      "window_samples": 291,
+      "window_seconds": 19.971160353422167,
+      "t_centre": 1778996690.3184586,
+      "fps_used": 14.571011140578799
+    },
+    {
+      "rr_bpm": 17.521771113520828,
+      "snr": 2.5525308907005253,
+      "confidence": "LOW",
+      "window_samples": 291,
+      "window_seconds": 19.991535143078984,
+      "t_centre": 1778996693.8702033,
+      "fps_used": 14.556160790920723
+    },
+    {
+      "rr_bpm": 17.70869243257308,
+      "snr": 2.661196850690122,
+      "confidence": "LOW",
+      "window_samples": 290,
+      "window_seconds": 19.941650921420045,
+      "t_centre": 1778996697.452464,
+      "fps_used": 14.54242686038098
+    },
+    {
+      "rr_bpm": 18.450086884171643,
+      "snr": 2.931354182690784,
+      "confidence": "LOW",
+      "window_samples": 290,
+      "window_seconds": 19.93452876408895,
+      "t_centre": 1778996700.8463438,
+      "fps_used": 14.54762254136754
+    },
+    {
+      "rr_bpm": 17.395739941563217,
+      "snr": 2.7753847081783083,
+      "confidence": "LOW",
+      "window_samples": 290,
+      "window_seconds": 19.94382322192192,
+      "t_centre": 1778996704.3427758,
+      "fps_used": 14.54084288519148
+    }
+  ]
+}
