@@ -444,13 +444,21 @@ class _Orchestrator:
                 "fps_used":     float(result.get("fps_used", measured_fps or 0.0))
                                 if result is not None else None,
             }
-            # Per-window history kept for re-scoring / audit.
-            meta["rr_windows"] = [
-                {"rr_bpm": float(w["rr_bpm"]),
-                 "snr":    float(w["snr"]),
-                 "confidence": str(w["confidence"])}
-                for w in pipe._rr_history
-            ]
+            # Per-window history kept for re-scoring / audit. Sliding-window
+            # fields (window_samples, window_seconds, t_centre) are present
+            # from PR J onwards — older runs won't have them.
+            def _w_dict(w: dict) -> dict:
+                out = {
+                    "rr_bpm":     float(w["rr_bpm"]),
+                    "snr":        float(w["snr"]),
+                    "confidence": str(w["confidence"]),
+                }
+                for k in ("window_samples", "window_seconds", "t_centre",
+                          "fps_used"):
+                    if k in w:
+                        out[k] = float(w[k]) if k != "window_samples" else int(w[k])
+                return out
+            meta["rr_windows"] = [_w_dict(w) for w in pipe._rr_history]
         else:
             meta["result_final"] = None
             meta["rr_windows"] = []

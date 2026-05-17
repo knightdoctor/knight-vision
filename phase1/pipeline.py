@@ -171,17 +171,21 @@ class Phase1Pipeline:
                       file=sys.stderr)
                 return None
 
-        if compute_rr_every is None:
-            compute_rr_every = self._COMPUTE_RR_EVERY_DEFAULT
-
-        self.primary_driver.set_live_mode(True)
-
         # Configured fps is used to size the loop budget; the FFT uses the
         # MEASURED loop rate (computed below) because if config and reality
         # disagree, FFT bin→Hz mapping is wrong and reported BPM is biased
         # by (config_fps / actual_fps). Bug class found 2026-05-16.
         cfg_fps  = self.config.lidar_fps if self.lidar else self.config.radar_fps
         n_frames = max(1, int(duration_seconds * cfg_fps))
+
+        # PR J 2026-05-17: derive compute cadence from sliding window config
+        # if caller didn't override. step = window * (1 - overlap) seconds.
+        if compute_rr_every is None:
+            step_s = (self.config.rr_window_seconds
+                      * (1.0 - self.config.rr_window_overlap))
+            compute_rr_every = max(1, int(round(step_s * cfg_fps)))
+
+        self.primary_driver.set_live_mode(True)
 
         self._frame_buffer = []
         self._centroid_z   = []
@@ -245,7 +249,7 @@ class Phase1Pipeline:
                     print(f"[pipeline] stop requested at frame {i+1}/{n_frames}")
                 break
 
-            # ── Periodic RR estimation ────────────────────────────────────
+            # ── Periodic RR estimation (sliding window, PR J) ────────────
             if (i + 1) % compute_rr_every == 0:
                 # Measure loop fps regardless — it's recorded to meta.json.
                 if t_first_frame is not None:
@@ -258,9 +262,28 @@ class Phase1Pipeline:
                 # for synthetic/demo runs where the synthetic driver bakes
                 # the signal frequency against a known nominal rate.
                 fps_for_fft = force_fps if force_fps is not None else actual_fps
-                sig = np.array(self._centroid_z, dtype=float)
+
+                # Sliding window: FFT only the last rr_window_seconds of cz.
+                # Earlier we FFTed the cumulative series, which smoothed real
+                # transitions (apnoea onset, rate changes) by ~20s. With a
+                # bounded window, the FFT reflects only the recent state.
+                # Minimum 64 samples to keep FFT meaningful before window fills.
+                fps_for_window = actual_fps if actual_fps > 0 else cfg_fps
+                window_n = max(64, int(self.config.rr_window_seconds
+                                       * fps_for_window))
+                cz_arr  = np.array(self._centroid_z, dtype=float)
+                sig     = cz_arr[-window_n:] if cz_arr.size > window_n else cz_arr
+
                 result = extract_rr_from_signal(sig, fps_for_fft, self.config)
-                result["fps_used"] = fps_for_fft
+                result["fps_used"]        = fps_for_fft
+                result["window_samples"]  = int(len(sig))
+                result["window_seconds"]  = (len(sig) / fps_for_window
+                                             if fps_for_window > 0 else 0.0)
+                # t_centre: wall-clock time of the centre of this analysis
+                # window. Apnoea / phase alignment uses this to map BPM
+                # estimates onto manual phase markers in gt.csv.
+                result["t_centre"] = (time.time()
+                                      - result["window_seconds"] / 2.0)
                 self._rr_history.append(result)
                 last_result = result
 

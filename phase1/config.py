@@ -86,6 +86,14 @@ class KVConfig:
     fft_window_length: int = 256       # samples fed into FFT
     fft_zero_pad_factor: int = 16      # zero-pad to fft_window_length × this
 
+    # ── Sliding-window FFT (PR J 2026-05-17) ─────────────────────────────────
+    # Each RR estimate uses only the last rr_window_seconds of cz, advancing
+    # by rr_window_overlap fraction of the window. 20s @ 75% overlap → new
+    # estimate every 5s; bin spacing ~3 BPM; apnoea detection lag ~10s.
+    # See phase1/notes/next_session.md for the decision reasoning.
+    rr_window_seconds: float = 20.0
+    rr_window_overlap: float = 0.75
+
     # ── SNR / confidence thresholds ──────────────────────────────────────────
     snr_high_threshold: float = 5.0    # tightened 2026-05-16 per M1 requirement
     snr_medium_threshold: float = 3.0  # LOW reports value with caveat, never suppress
