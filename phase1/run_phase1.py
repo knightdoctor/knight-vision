@@ -123,14 +123,21 @@ class _RadarSidecar:
     pre-recording history we don't need.
     """
 
-    def __init__(self, config) -> None:
+    def __init__(self, config, viewer=None) -> None:
         from phase1.drivers.radar_driver import RadarDriver
+        self.config = config
         self.driver = RadarDriver(config)
+        self.viewer = viewer
         self._buffer: List[Tuple[float, "np.ndarray"]] = []
         self._lock = threading.Lock()
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._error: Optional[str] = None
+        # Live-BPM tunables (PR Q viewer integration). Whole-frame mean_z
+        # method (the unbiased aggregation per N=5 profile 2026-05-18).
+        self._bpm_window_s = 20.0
+        self._bpm_compute_every_n_frames = 20   # ~every 2s at ~10 fps
+        self._frame_counter = 0
 
     def start(self) -> None:
         if self._running:
@@ -140,6 +147,39 @@ class _RadarSidecar:
                                         name="radar-sidecar")
         self._thread.start()
         print("[radar-sidecar] capture thread started")
+
+    def _compute_bpm(self) -> Optional[Tuple[float, float, str]]:
+        """Whole-frame median_z FFT on the last bpm_window_s of buffer.
+
+        Switched mean_z -> median_z 2026-05-18 evening: partner-as-subject
+        run showed mean_z aggregation locking onto a 35.86 BPM outlier
+        peak while median_z and min_z both reported ~10 BPM in line with
+        Polar GT (11.78). Median is more robust to occasional far-field
+        detections (walls, blankets) that pull mean upward.
+        """
+        with self._lock:
+            buf = list(self._buffer)
+        if len(buf) < 30:
+            return None
+        cutoff = buf[-1][0] - self._bpm_window_s
+        window = [(t, pts) for t, pts in buf if t >= cutoff]
+        if len(window) < 30:
+            return None
+        # Skip frames with no detections.
+        mz = np.array([float(np.median(pts[:, 2])) if len(pts) else float("nan")
+                       for _, pts in window], dtype=float)
+        valid = ~np.isnan(mz)
+        if valid.sum() < 30:
+            return None
+        mz[~valid] = float(np.nanmean(mz))
+        fps = (window[-1][0] - window[0][0])
+        fps = (len(window) - 1) / fps if fps > 0 else 10.0
+        try:
+            from phase1.respiratory import extract_rr_from_signal
+            r = extract_rr_from_signal(mz, fps, self.config)
+            return float(r["rr_bpm"]), float(r["snr"]), str(r["confidence"])
+        except Exception:
+            return None
 
     def _run(self) -> None:
         try:
@@ -154,6 +194,23 @@ class _RadarSidecar:
                 if len(self._buffer) > 9000:
                     with self._lock:
                         self._buffer = self._buffer[-6000:]
+
+                # PR Q: push to viewer at ~2 Hz (every 5 frames at ~10 fps);
+                # compute live BPM less often to keep CPU light.
+                self._frame_counter += 1
+                if self.viewer is not None:
+                    if self._frame_counter % 5 == 0:
+                        try:
+                            self.viewer.set_radar_frame(pts)
+                        except Exception:
+                            pass
+                    if self._frame_counter % self._bpm_compute_every_n_frames == 0:
+                        bpm = self._compute_bpm()
+                        if bpm is not None:
+                            try:
+                                self.viewer.set_radar_rr(*bpm)
+                            except Exception:
+                                pass
         except Exception as e:
             self._error = str(e)
             print(f"[radar-sidecar] thread error: {type(e).__name__}: {e}")
@@ -246,7 +303,7 @@ class _Orchestrator:
         self._radar_sidecar: Optional[_RadarSidecar] = None
         if getattr(args, "record_radar", False):
             try:
-                self._radar_sidecar = _RadarSidecar(config)
+                self._radar_sidecar = _RadarSidecar(config, viewer=self._viewer)
                 self._radar_sidecar.start()
             except Exception as e:
                 print(f"[radar-sidecar] init FAILED ({type(e).__name__}: {e}) "

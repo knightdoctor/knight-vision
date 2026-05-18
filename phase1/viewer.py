@@ -65,6 +65,19 @@ _state = {
     "rr_conf":    None,
     "rr_n":       0,
     "frame_ts":   [],   # recent set_frame wall times for live fps calc
+    # Radar sidecar state (PR Q 2026-05-18 viewer integration)
+    "radar_pts":  np.empty((0, 3), dtype=np.float32),
+    "radar_n":    0,
+    "radar_active": False,
+    "radar_rr_bpm":  None,
+    "radar_rr_snr":  None,
+    "radar_rr_conf": None,
+    "radar_rr_n": 0,
+    # Trail buffer for visualisation: list of (recv_ts, points). Radar
+    # is too sparse (5-15 pts/frame) to read as a single-frame panel;
+    # accumulating the last few seconds of detections builds up enough
+    # density to see the subject. Newer drawn brighter, older faded.
+    "radar_trail": [],
 }
 
 # Static metadata set once at startup (band limits, sensor info, etc).
@@ -82,6 +95,8 @@ _rgb_active = False
 _depth_jpg_lock = threading.Lock()
 _latest_depth_jpg: Optional[bytes] = None
 _depth_active = False
+_radar_topdown_lock = threading.Lock()
+_latest_radar_topdown_jpg: Optional[bytes] = None
 _started = False
 
 # Control state (browser → pipeline). Pipeline polls these each frame.
@@ -146,6 +161,14 @@ def reset() -> None:
         _state["rr_conf"]    = None
         _state["rr_n"]       = 0
         _state["frame_ts"]   = []
+        _state["radar_pts"]      = np.empty((0, 3), dtype=np.float32)
+        _state["radar_n"]        = 0
+        _state["radar_active"]   = False
+        _state["radar_rr_bpm"]   = None
+        _state["radar_rr_snr"]   = None
+        _state["radar_rr_conf"]  = None
+        _state["radar_rr_n"]     = 0
+        _state["radar_trail"]    = []
         _control["recording"]    = False
         _control["stop_session"] = False
         _control["record_seq"]   = 0
@@ -184,6 +207,33 @@ def set_meta(band_min_bpm: float, band_max_bpm: float) -> None:
     with _LOCK:
         _meta["band_min_bpm"] = float(band_min_bpm)
         _meta["band_max_bpm"] = float(band_max_bpm)
+
+
+def set_radar_frame(points: np.ndarray) -> None:
+    """Sidecar pushes the latest radar frame (N, 3) in shared XYZ metres.
+    Stored as latest-frame + appended to trail for accumulation in the
+    top-down render."""
+    pts = (points.astype(np.float32)
+           if points is not None and len(points) else
+           np.empty((0, 3), dtype=np.float32))
+    with _LOCK:
+        _state["radar_pts"] = pts
+        _state["radar_n"]   = int(len(pts))
+        _state["radar_active"] = True
+        _state["radar_trail"].append((time.time(), pts))
+        # Cap trail age at 3s; sidecar pushes ~2 Hz so this is ~6 entries.
+        cutoff = time.time() - 3.0
+        _state["radar_trail"] = [(t, p) for (t, p) in _state["radar_trail"]
+                                 if t >= cutoff]
+
+
+def set_radar_rr(rr_bpm: float, snr: float, confidence: str) -> None:
+    """Sidecar pushes the latest radar RR estimate."""
+    with _LOCK:
+        _state["radar_rr_bpm"]  = float(rr_bpm) if rr_bpm is not None else None
+        _state["radar_rr_snr"]  = float(snr) if snr is not None else None
+        _state["radar_rr_conf"] = str(confidence) if confidence else None
+        _state["radar_rr_n"]   += 1
 
 
 def set_rgb(jpeg_bytes: bytes) -> None:
@@ -356,8 +406,62 @@ def _render_waveform_jpeg() -> Optional[bytes]:
     return jpg.tobytes() if ok else None
 
 
+def _render_radar_topdown_jpeg() -> Optional[bytes]:
+    """Radar top-down panel (PR Q). Same X/Z bounds as LiDAR top-down for
+    direct spatial comparison. Renders a 3-second TRAIL of detections —
+    radar is too sparse (5-15 pts/frame) for single-frame to be readable;
+    accumulating recent frames builds up enough density to see the subject.
+    Newer frames drawn brighter, older faded by age."""
+    with _LOCK:
+        trail = list(_state["radar_trail"])
+        n_now = _state["radar_n"]
+        active = _state["radar_active"]
+    canvas = np.full((PANEL_H, PANEL_W, 3), BG, dtype=np.uint8)
+    cv2.rectangle(canvas, (0, 0), (PANEL_W, PANEL_H), PANEL, -1)
+    # Same grid as LiDAR top-down for spatial alignment.
+    for m in range(int(TOPDOWN_X_LIMITS[0]), int(TOPDOWN_X_LIMITS[1]) + 1):
+        x_px = int((m - TOPDOWN_X_LIMITS[0]) /
+                   (TOPDOWN_X_LIMITS[1] - TOPDOWN_X_LIMITS[0]) * PANEL_W)
+        cv2.line(canvas, (x_px, 0), (x_px, PANEL_H), GRID, 1)
+        cv2.putText(canvas, f"{m:+d}", (x_px + 2, PANEL_H - 4),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, DIM, 1, cv2.LINE_AA)
+    for m in range(int(TOPDOWN_Z_LIMITS[0]), int(TOPDOWN_Z_LIMITS[1]) + 1):
+        y_px = int(PANEL_H - (m - TOPDOWN_Z_LIMITS[0]) /
+                   (TOPDOWN_Z_LIMITS[1] - TOPDOWN_Z_LIMITS[0]) * PANEL_H)
+        cv2.line(canvas, (0, y_px), (PANEL_W, y_px), GRID, 1)
+        cv2.putText(canvas, f"{m}m", (4, y_px - 3),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, DIM, 1, cv2.LINE_AA)
+    # Render trail oldest -> newest so newer pixels overwrite older ones.
+    now = time.time()
+    total_pts = 0
+    for ts, pts in trail:
+        if len(pts) == 0:
+            continue
+        age = max(0.0, now - ts)
+        # Fade: 1.0 at age 0 → 0.15 at age 3s.
+        alpha = max(0.15, 1.0 - (age / 3.0) * 0.85)
+        col = tuple(int(c * alpha) for c in (255, 60, 200))
+        x_px, y_px = _world_to_topdown_px(pts[:, 0], pts[:, 2])
+        in_view = ((x_px >= 0) & (x_px < PANEL_W)
+                   & (y_px >= 0) & (y_px < PANEL_H))
+        for u, v in zip(x_px[in_view], y_px[in_view]):
+            cv2.circle(canvas, (int(u), int(v)), 4, col, -1)
+        total_pts += int(in_view.sum())
+    # HUD strip.
+    cv2.rectangle(canvas, (0, 0), (PANEL_W, 22), (0, 0, 0), -1)
+    if not active:
+        msg = "radar OFF — launch with --record-radar"
+    else:
+        msg = (f"radar  current {n_now} pts  ·  3s trail {total_pts} pts "
+               f"({len(trail)} frames)")
+    cv2.putText(canvas, msg, (8, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.42,
+                TEXT, 1, cv2.LINE_AA)
+    ok, jpg = cv2.imencode(".jpg", canvas, [cv2.IMWRITE_JPEG_QUALITY, 78])
+    return jpg.tobytes() if ok else None
+
+
 def _render_loop() -> None:
-    global _latest_topdown_jpg, _latest_waveform_jpg
+    global _latest_topdown_jpg, _latest_waveform_jpg, _latest_radar_topdown_jpg
     period = 1.0 / RENDER_FPS
     while True:
         t0 = time.time()
@@ -370,6 +474,10 @@ def _render_loop() -> None:
             if jpg is not None:
                 with _waveform_lock:
                     _latest_waveform_jpg = jpg
+            jpg = _render_radar_topdown_jpeg()
+            if jpg is not None:
+                with _radar_topdown_lock:
+                    _latest_radar_topdown_jpg = jpg
         except Exception as e:
             print(f"[viewer] render error: {type(e).__name__}: {e}")
         elapsed = time.time() - t0
@@ -560,6 +668,11 @@ PAGE = """<!doctype html>
           </span>
         </div>
       </div>
+      <div id="radar_card" class="thumb" style="padding:6px">
+        <div class="lbl">Radar · top-down (X/Z)</div>
+        <img id="radar_feed" src="/radar_stream"
+             style="width:100%;height:auto;border-radius:3px;background:#000">
+      </div>
       <div class="substrip">
         <div id="depth_card" class="thumb disabled">
           <div class="lbl">Depth · JET</div>
@@ -573,20 +686,25 @@ PAGE = """<!doctype html>
         </div>
       </div>
       <div class="gt-thumb">
-        <div class="lbl">Ground truth (Polar / manual)</div>
+        <div class="lbl">Ground truth (Polar / manual) · radar cross-check</div>
         <div class="vals">
           <div class="pair">
-            <div class="k">HR</div>
+            <div class="k">HR (Polar)</div>
             <div class="v" id="gt_hr">—</div>
             <div class="src" id="gt_hr_src">&nbsp;</div>
           </div>
           <div class="pair">
-            <div class="k">RR</div>
+            <div class="k">RR (Polar)</div>
             <div class="v" id="gt_rr">—</div>
             <div class="src" id="gt_rr_src">&nbsp;</div>
           </div>
+          <div class="pair">
+            <div class="k">RR (Radar)</div>
+            <div class="v" id="radar_rr" style="color:#f6b">—</div>
+            <div class="src" id="radar_rr_src">&nbsp;</div>
+          </div>
         </div>
-        <div class="delta">Δ LiDAR−GT: <b id="gt_delta_v">—</b></div>
+        <div class="delta">Δ LiDAR−Polar: <b id="gt_delta_v">—</b> &nbsp;·&nbsp; Δ LiDAR−Radar: <b id="radar_delta_v">—</b></div>
         <form class="gt-form" onsubmit="submitGT(event)">
           HR <input type="number" id="gt_hr_in" min="20" max="220" step="1">
           RR <input type="number" id="gt_rr_in" min="0" max="60" step="0.1">
@@ -685,6 +803,21 @@ async function refresh(){
         document.getElementById('gt_delta_v').textContent = '—';
       }
     }
+    // Radar BPM + Δ vs LiDAR
+    const rrr = j.radar_rr_bpm;
+    if (rrr !== null && rrr !== undefined) {
+      document.getElementById('radar_rr').textContent = rrr.toFixed(1);
+      document.getElementById('radar_rr_src').textContent =
+        (j.radar_active ? `mean_z · n=${j.radar_rr_n}` : 'inactive');
+      if (j.rr_bpm !== null) {
+        const d = j.rr_bpm - rrr;
+        const sign = d >= 0 ? '+' : '';
+        document.getElementById('radar_delta_v').textContent = sign + d.toFixed(1) + ' BPM';
+      }
+    } else if (j.radar_active) {
+      document.getElementById('radar_rr_src').textContent =
+        `warming up · n=${j.radar_n||0}`;
+    }
   }catch(e){}
 }
 async function submitGT(ev){
@@ -761,6 +894,12 @@ def state():
             "record_seq": _control["record_seq"],
             "rgb_active": _rgb_active,
             "depth_active": _depth_active,
+            "radar_active":   _state["radar_active"],
+            "radar_n":        _state["radar_n"],
+            "radar_rr_bpm":   _state["radar_rr_bpm"],
+            "radar_rr_snr":   _state["radar_rr_snr"],
+            "radar_rr_conf":  _state["radar_rr_conf"],
+            "radar_rr_n":     _state["radar_rr_n"],
             "gt": get_gt_current(),
             "band_min_bpm": _meta["band_min_bpm"],
             "band_max_bpm": _meta["band_max_bpm"],
@@ -829,6 +968,14 @@ def waveform_stream():
 @app.route("/rgb_stream")
 def rgb_stream():
     return Response(_rgb_stream_gen(),
+                    mimetype="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.route("/radar_stream")
+def radar_stream():
+    gen = _make_stream_gen(_radar_topdown_lock,
+                           lambda: _latest_radar_topdown_jpg)
+    return Response(gen(),
                     mimetype="multipart/x-mixed-replace; boundary=frame")
 
 

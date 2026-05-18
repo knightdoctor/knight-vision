@@ -194,3 +194,146 @@ profile.
   measure split (LiDAR over vs Polar under). Not blocking
 - The bias profile is itself a piece of M1 evidence — methodological
   honesty improves the grant narrative
+
+---
+
+## Update (2026-05-18 late afternoon) — partner cohort + radar method retraction
+
+Three more 3-way captures landed this afternoon, this time with **Dr
+Knight's partner as subject** (Phil sat outside FOV; sensors moved →
+fresh bg captured). PR P sidecar used throughout; PR Q viewer
+visualisation (radar top-down trail + live radar BPM) shipped between
+Run 10 and Run 12.
+
+  Run 10 partner (16:01) — Polar median 11.78 (97 samples, HR 88)
+  Run 11 partner (16:08) — Polar median 14.15 (similar setup)
+  Run 12 partner (16:19) — Polar median 14.85 (97 samples, HR 93)
+
+Partner is a meaningfully harder subject than Phil: higher resting HR
+(88-93 vs Phil's 70-78), more variable breath rate (Polar RR std ~2
+BPM vs Phil's ~0.5), and the sensor pose was changed mid-day. **All
+three contribute to larger errors on the partner cohort regardless of
+method.**
+
+### Radar aggregation profile — N=5 paired runs, apples-to-apples
+
+Ran the LiDAR pipeline's exact FFT (10-30 BPM band, PR I power-weighted
+centroid) against three radar aggregations across all paired radar
+recordings:
+
+```
+Run                         |   Polar |          mean_z |        median_z |           min_z
+Run 7 Phil  (14:52 smoke)   |   13.05 | 16.40 (Δ+3.35) | 21.18 (Δ+8.13) | 14.68 (Δ+1.63)
+Run 9 Phil  (15:12 sidecar) |   13.57 | 15.23 (Δ+1.66) | 17.29 (Δ+3.72) | 16.46 (Δ+2.89)
+Run 10 partner (16:01)      |   11.78 | 21.25 (Δ+9.48) | 21.17 (Δ+9.40) | 17.72 (Δ+5.95)
+Run 11 partner (16:08)      |   14.15 | 22.17 (Δ+8.02) | 22.38 (Δ+8.23) | 19.53 (Δ+5.38)
+Run 12 partner (16:19)      |   14.85 | 20.69 (Δ+5.84) | 20.85 (Δ+6.00) | 21.96 (Δ+7.11)
+
+Mean abs Δ vs Polar:
+  mean_z   : 5.67 BPM  (max 9.48)
+  median_z : 7.09 BPM  (max 9.40)
+  min_z    : 4.59 BPM  (max 7.11)   ← best of three
+```
+
+Reproduce with `phase1/run.sh profile_radar_methods.py`.
+
+### Retraction: "radar whole-frame mean_z within 0.07 BPM of Polar"
+
+The Run 9 headline figure from this morning ("radar whole-frame mean_z
+13.64 BPM vs Polar 13.57, Δ +0.07 BPM") **doesn't survive an apples-to-
+apples comparison** with the LiDAR pipeline.
+
+The earlier number came from `analyze_radar_smoke.py`, which uses a
+hard-coded **6-40 BPM band + peak-pick** — a much looser methodology
+than the LiDAR pipeline (10-30 BPM band + PR I power-weighted
+centroid). Same data through the same algorithm LiDAR uses yields Run
+9 radar mean_z = 15.23 BPM (Δ +1.66). The 0.07 BPM agreement was an
+artefact of methodology mismatch, not real cross-modal convergence.
+
+That retraction propagates back to open question (b) in the original
+note: **radar's bias vs Polar is not a small under-estimate. It's
+3-5× the LiDAR error in all paired runs once the method is matched.**
+
+### Re-framed radar status
+
+- **Sparse-points radar processed naively is NOT a peer measurement
+  for RR.** Mean abs Δ vs Polar is 4.6-7.1 BPM across methods, vs
+  LiDAR's ~+1-2 BPM systematic offset.
+- It can still serve as a **rough cross-check** ("LiDAR and radar both
+  in the physiological band?"), and as a **secondary apnoea signal**
+  (when LiDAR amplitude cessation fires, does radar agree?). But not
+  as a primary RR estimator.
+- The proper radar respiratory approach — phase-on-chest-bin or range-
+  Doppler magnitude per the apnoea architecture doc — is still the
+  right answer for radar as a real modality. What we have now is
+  debug-grade cross-modal sanity-check, not a third measurement arm.
+- **PR Q (radar visualisation in viewer) ships as a debug tool**, not
+  a clinical readout. The live "RR (Radar)" pink number in the GT card
+  is informative-but-not-trustworthy; treat as a sanity check.
+
+### Subject-dependence of "best method"
+
+Even within the radar-as-cross-check framing, no aggregation method is
+universally best. min_z won 3/5 runs; mean_z won 2/5; median_z won
+none. This is **subject-dependent**: depends on how the sparse radar
+detections distribute spatially around the subject, which depends on
+clothing, posture, HR (BCG affects far-side detections), and sensor-
+to-subject geometry. A universal radar aggregation rule isn't visible
+in this dataset.
+
+### What this means for M1
+
+The +1-2 BPM LiDAR-vs-Polar bias narrative from N=5 (Phil cohort)
+**doesn't generalise to the partner cohort** — Run 10 Δ was +4.81
+BPM, Run 11/12 similar. Subject and pose variability is bigger than
+within-subject variability. M1 reporting needs:
+
+1. **Disclose subject + sensor-pose variability** as part of the
+   uncertainty budget, not hide it under an averaged "Δ ≈ 1.7 BPM"
+2. **Frame radar as cross-check infrastructure** for the multi-modal
+   apnoea defence, not as a peer RR measurement
+3. **Defer claims about radar accuracy** until the proper
+   phase-on-chest-bin pipeline is built (Phase 2)
+
+### Distance caveat — adult-at-1.3m is NOT the deployment scenario
+
+All today's captures placed the subject at ~1.3-1.5 m from the sensor
+(adult on a chair). **The Knight Vision cot deployment scenario is a
+neonate at well under 1 m — likely 30-60 cm from sensor.** The current
+N=5 paired cohort therefore tests the algorithm in a regime
+substantially harder than the target operating condition:
+
+- At ~50 cm vs ~1.3 m, the subject's angular extent in the sensor FOV
+  is ~3× larger → ~10× more LiDAR points on the chest (linear×linear×
+  geometric falloff).
+- More radar detections per frame from the chest, fewer from
+  background (walls, sofa) which are now relatively further away.
+- Cardiac BCG and respiratory amplitudes scale with distance
+  differently in BCG literature — relative SNR of breath vs heart may
+  shift at closer ranges.
+- ROI definition becomes much simpler — at 50 cm the subject fills
+  most of the monitoring volume; sub-region adaptive chest selection
+  may not even be needed.
+
+**Implication: today's "radar is 5 BPM off Polar" finding might be
+materially better at deployment distance.** Adult-on-chair is the
+worst case for sparse-radar sensitivity, not a representative test.
+
+**Action:** at next session, do a "close-range" capture — sensor
+aimed at a chair or table at ~50 cm, subject (Phil) leans/sits so
+chest is in that range. Compare LiDAR and radar errors vs Polar at
+deployment-equivalent geometry. If errors drop substantially → the
+sparse-radar approach may earn its keep for cot monitoring. If
+errors stay the same → the sparse approach is fundamentally limited
+and proper range-Doppler is the only path.
+
+### Carry-over follow-ups
+
+- **Close-range capture (~50 cm)** — deployment-equivalent geometry test
+- Align radar smoke analysis bands with LiDAR pipeline (10-30 BPM) in
+  the standalone scripts so future smoke analyses don't recreate the
+  methodology mismatch that produced the retracted figure
+- Continue M1 paired captures with subject + pose held constant for
+  within-subject reproducibility
+- Source third-modality GT (task #66) — even more important now,
+  since LiDAR-vs-Polar variability is itself subject-dependent
