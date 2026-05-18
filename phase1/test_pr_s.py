@@ -85,10 +85,53 @@ def test_returns_none_when_volume_empty():
     print("  [ok] returns None when no cluster in volume")
 
 
+def test_size_dominance_breaks_phantom_lock():
+    """Real bug seen 2026-05-18: lock latched onto a 250-pt persistent
+    wall residual at z=1.9; subject walked in as a 5000-pt cluster at
+    z=1.0 but the lock kept tracking the phantom because the phantom
+    centroid was closest to itself. Dominance override should release."""
+    phantom = _make([0.0, 0.0, 1.9], n_points=260)   # the wall residual
+    subject = _make([0.0, 0.0, 1.0], n_points=5000)  # Phil walks in
+    # cluster_residuals returns largest-first; subject is now largest.
+    clusters = [subject, phantom]
+    out = select_subject_cluster(
+        clusters, VOLUME,
+        prev_centroid=np.array([0.0, 0.0, 1.9]),   # was locked on phantom
+        lock_radius_m=0.30,
+        size_dominance_ratio=2.0,
+    )
+    assert out is subject.points, (
+        "Dominance override should switch from 260-pt phantom to "
+        "5000-pt real subject (>=2x larger)"
+    )
+    print("  [ok] dominance override breaks phantom lock")
+
+
+def test_dominance_does_not_fire_for_similar_sizes():
+    """The 1.5x sofa-vs-subject case from test_lock_prefers_nearby_smaller
+    should still hold — sofa is 600/400 = 1.5x, below the 2.0 dominance
+    ratio, so the lock should keep the nearby subject."""
+    subject = _make([0.0, 0.0, 1.0], n_points=400)
+    sofa    = _make([0.0, 0.0, 1.5], n_points=600)
+    clusters = [sofa, subject]
+    out = select_subject_cluster(
+        clusters, VOLUME,
+        prev_centroid=np.array([0.0, 0.0, 1.0]),
+        lock_radius_m=0.30,
+        size_dominance_ratio=2.0,
+    )
+    assert out is subject.points, (
+        "1.5x size difference should not trigger dominance override"
+    )
+    print("  [ok] dominance leaves lock alone for similar-size clusters")
+
+
 if __name__ == "__main__":
     print("Task #58 — sticky subject tracking sanity check")
     test_acquire_picks_largest()
     test_lock_prefers_nearby_smaller()
     test_lock_fallthrough_on_big_jump()
     test_returns_none_when_volume_empty()
+    test_size_dominance_breaks_phantom_lock()
+    test_dominance_does_not_fire_for_similar_sizes()
     print("\nAll checks passed.")

@@ -101,6 +101,8 @@ _radar_topdown_lock = threading.Lock()
 _latest_radar_topdown_jpg: Optional[bytes] = None
 _radar_side_lock = threading.Lock()
 _latest_radar_side_jpg: Optional[bytes] = None
+_lidar_side_lock = threading.Lock()
+_latest_lidar_side_jpg: Optional[bytes] = None
 _started = False
 
 # Radar geometry — IWR6843AOPEVM antenna-on-package.
@@ -108,6 +110,8 @@ RADAR_FOV_AZ_DEG = 60.0   # ±60° azimuth (X-Z plane half-angle)
 RADAR_FOV_EL_DEG = 60.0   # ±60° elevation (Y-Z plane half-angle)
 RADAR_SIDE_PANEL_H = 220  # px — shorter panel for side elevation view
 RADAR_SIDE_Y_LIMITS = (-0.8, 1.0)   # metres (down → up)
+LIDAR_SIDE_PANEL_H = 240  # px — LiDAR side elevation panel
+LIDAR_SIDE_Y_LIMITS = (-0.3, 1.6)   # metres (knees-ish → above head, seated subject)
 
 # Control state (browser → pipeline). Pipeline polls these each frame.
 _control = {
@@ -648,9 +652,83 @@ def _render_radar_side_jpeg() -> Optional[bytes]:
     return jpg.tobytes() if ok else None
 
 
+def _world_to_lidar_side_px(z: np.ndarray, y: np.ndarray) -> tuple:
+    """Map world (Z forward, Y up) metres → LiDAR side-elevation pixels.
+    Mirrors _world_to_side_px but with LIDAR_SIDE_* limits. Wider Y range
+    (-0.3 → 1.6 m) covers a seated subject's knees up through head."""
+    zmin, zmax = TOPDOWN_Z_LIMITS
+    ymin, ymax = LIDAR_SIDE_Y_LIMITS
+    px = ((z - zmin) / (zmax - zmin) * PANEL_W).astype(np.int32)
+    py = (LIDAR_SIDE_PANEL_H - (y - ymin) / (ymax - ymin)
+          * LIDAR_SIDE_PANEL_H).astype(np.int32)
+    return px, py
+
+
+def _render_lidar_side_jpeg() -> Optional[bytes]:
+    """LiDAR side-elevation panel (Y vs Z). Lets the operator see the
+    subject's vertical extent and verify the chest band is on torso
+    rather than head/legs. Same Z bounds as the LiDAR top-down panel
+    so subject horizontal position is directly comparable across the
+    two views."""
+    with _LOCK:
+        residuals = _state["residuals"]
+        subject   = _state["subject"]
+        chest     = _state["chest"]
+        frame_no  = _state["frame_no"]
+    H = LIDAR_SIDE_PANEL_H
+    canvas = np.full((H, PANEL_W, 3), BG, dtype=np.uint8)
+    cv2.rectangle(canvas, (0, 0), (PANEL_W, H), PANEL, -1)
+    # Grid: Z gridlines every 1 m, Y gridlines every 0.5 m.
+    for m in range(int(TOPDOWN_Z_LIMITS[0]), int(TOPDOWN_Z_LIMITS[1]) + 1):
+        x_px = int((m - TOPDOWN_Z_LIMITS[0]) /
+                   (TOPDOWN_Z_LIMITS[1] - TOPDOWN_Z_LIMITS[0]) * PANEL_W)
+        cv2.line(canvas, (x_px, 0), (x_px, H), GRID, 1)
+        cv2.putText(canvas, f"{m}m", (x_px + 2, H - 4),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, DIM, 1, cv2.LINE_AA)
+    y_lo, y_hi = LIDAR_SIDE_Y_LIMITS
+    y_step_int = int(np.floor((y_hi - y_lo) / 0.5))
+    for k in range(y_step_int + 1):
+        y_m = y_lo + 0.5 * k
+        y_px = int(H - (y_m - y_lo) / (y_hi - y_lo) * H)
+        cv2.line(canvas, (0, y_px), (PANEL_W, y_px), GRID, 1)
+        cv2.putText(canvas, f"{y_m:+.1f}m", (4, y_px - 3),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, DIM, 1, cv2.LINE_AA)
+    # Residual cloud (faint, for context).
+    if len(residuals):
+        x_px, y_px = _world_to_lidar_side_px(residuals[:, 2], residuals[:, 1])
+        in_view = ((x_px >= 0) & (x_px < PANEL_W)
+                   & (y_px >= 0) & (y_px < H))
+        canvas[y_px[in_view], x_px[in_view]] = RESID
+    # Subject cluster.
+    if subject is not None and len(subject):
+        x_px, y_px = _world_to_lidar_side_px(subject[:, 2], subject[:, 1])
+        in_view = ((x_px >= 0) & (x_px < PANEL_W)
+                   & (y_px >= 0) & (y_px < H))
+        for u, v in zip(x_px[in_view], y_px[in_view]):
+            cv2.circle(canvas, (int(u), int(v)), 2, SUBJ, -1)
+    # Chest band overlay.
+    if chest is not None and len(chest):
+        x_px, y_px = _world_to_lidar_side_px(chest[:, 2], chest[:, 1])
+        in_view = ((x_px >= 0) & (x_px < PANEL_W)
+                   & (y_px >= 0) & (y_px < H))
+        for u, v in zip(x_px[in_view], y_px[in_view]):
+            cv2.circle(canvas, (int(u), int(v)), 3, CHEST, -1)
+    # HUD.
+    cv2.rectangle(canvas, (0, 0), (PANEL_W, 20), (0, 0, 0), -1)
+    chest_n = 0 if chest is None else len(chest)
+    subj_n  = 0 if subject is None else len(subject)
+    msg = (f"lidar side  Y vs Z  ·  frame {frame_no}  ·  "
+           f"subj {subj_n} / chest {chest_n}")
+    cv2.putText(canvas, msg, (8, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.40,
+                TEXT, 1, cv2.LINE_AA)
+    ok, jpg = cv2.imencode(".jpg", canvas, [cv2.IMWRITE_JPEG_QUALITY, 78])
+    return jpg.tobytes() if ok else None
+
+
 def _render_loop() -> None:
     global _latest_topdown_jpg, _latest_waveform_jpg
     global _latest_radar_topdown_jpg, _latest_radar_side_jpg
+    global _latest_lidar_side_jpg
     period = 1.0 / RENDER_FPS
     while True:
         t0 = time.time()
@@ -671,6 +749,10 @@ def _render_loop() -> None:
             if jpg is not None:
                 with _radar_side_lock:
                     _latest_radar_side_jpg = jpg
+            jpg = _render_lidar_side_jpeg()
+            if jpg is not None:
+                with _lidar_side_lock:
+                    _latest_lidar_side_jpg = jpg
         except Exception as e:
             print(f"[viewer] render error: {type(e).__name__}: {e}")
         elapsed = time.time() - t0
@@ -861,6 +943,11 @@ PAGE = """<!doctype html>
             </span>
           </span>
         </div>
+      </div>
+      <div id="lidar_side_card" class="thumb" style="padding:6px">
+        <div class="lbl">LiDAR · side elevation (Y/Z) — chest band on torso?</div>
+        <img id="lidar_side_feed" src="/lidar_side_stream"
+             style="width:100%;height:auto;border-radius:3px;background:#000">
       </div>
       <div id="radar_card" class="thumb" style="padding:6px">
         <div class="lbl">Radar · top-down (X/Z, ±60° az cone)</div>
@@ -1182,6 +1269,14 @@ def radar_stream():
 def radar_side_stream():
     gen = _make_stream_gen(_radar_side_lock,
                            lambda: _latest_radar_side_jpg)
+    return Response(gen(),
+                    mimetype="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.route("/lidar_side_stream")
+def lidar_side_stream():
+    gen = _make_stream_gen(_lidar_side_lock,
+                           lambda: _latest_lidar_side_jpg)
     return Response(gen(),
                     mimetype="multipart/x-mixed-replace; boundary=frame")
 

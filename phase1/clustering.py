@@ -113,6 +113,7 @@ def select_subject_cluster(
     monitoring_volume_bbox: np.ndarray,
     prev_centroid: Optional[np.ndarray] = None,
     lock_radius_m: float = 0.30,
+    size_dominance_ratio: float = 2.0,
 ) -> Optional[np.ndarray]:
     """Select the most likely subject cluster from a list of clusters.
 
@@ -170,11 +171,24 @@ def select_subject_cluster(
         return None
 
     # Locked mode: prefer the cluster nearest the previous centroid,
-    # provided it sits within lock_radius_m.
+    # provided it sits within lock_radius_m AND no much-larger cluster
+    # also sits in the volume. The size-dominance check breaks a wedged
+    # lock when the previous candidate was actually a small persistent
+    # background residual (e.g. a 250-pt wall phantom) and the real
+    # subject has since walked in as a 5000-pt cluster well outside the
+    # lock radius: without the override, the lock chases the phantom
+    # forever because the phantom centroid is closest to itself.
     if prev_centroid is not None:
         prev = np.asarray(prev_centroid, dtype=float)
         best = min(in_volume, key=lambda c: np.linalg.norm(c.centroid - prev))
         if np.linalg.norm(best.centroid - prev) <= lock_radius_m:
+            # in_volume[0] is the largest by point count (cluster_residuals
+            # sorts largest-first). Take it if it dominates the locked
+            # candidate by size_dominance_ratio; otherwise hold the lock.
+            largest = in_volume[0]
+            if (largest is not best and
+                    largest.n_points >= size_dominance_ratio * best.n_points):
+                return largest.points
             return best.points
         # Fall through to acquire mode if no candidate is within radius.
 
