@@ -71,13 +71,42 @@ class KVConfig:
     dbscan_min_samples: int = 5
     cluster_min_points: int = 10
 
-    # ── Subject tracking (task #58, 2026-05-18) ──────────────────────────────
+    # ── Subject tracking (task #58 + PR Y, 2026-05-18) ───────────────────────
     # Once a subject cluster is found, prefer the cluster nearest the
     # previous frame's centroid over the largest-in-volume rule. Without
     # this, two similarly-sized clusters (subject vs. sofa edge) cause
-    # the ROI to flicker frame-to-frame.
+    # the ROI to flicker frame-to-frame and produce step-jumps in chest-Z
+    # — the "664mm spike artifact" seen in M1 paired captures.
     subject_lock_radius_m: float = 0.30      # max per-frame centroid jump
-    subject_lock_timeout_frames: int = 10    # frames without subject → drop lock
+
+    # PR Y tightening: original 10 frames @ ~6-14 fps = 0.7-1.7 s of grace.
+    # Apnoea detection wants faster re-acquire after a real occlusion, and
+    # the bigger risk is a momentary blip locking the tracker onto noise
+    # for a full second. 2 frames @ ~10 fps = ~200 ms, still rides through
+    # a single-frame DBSCAN noise event without dropping a real subject.
+    subject_lock_timeout_frames: int = 2
+
+    # Stable-acquisition gate (PR Y): require N consecutive frames where
+    # the largest-in-volume cluster centroid stays within
+    # ``subject_acquire_consistency_radius_m`` before formally declaring
+    # a lock. Defeats single-frame phantoms (residual flicker on a wall
+    # corner that pops up for 1 frame then vanishes) from being adopted
+    # as the subject. Trade: 3 frames @ ~10 fps = 300 ms of latency on
+    # re-acquire, which is acceptable given the apnoea response window.
+    subject_acquire_consistency_frames: int = 3
+    subject_acquire_consistency_radius_m: float = 0.20
+
+    # Shape gate (PR Y): drop clusters whose bounding-box dimensions are
+    # incompatible with a human silhouette. Cheap belt-and-braces filter
+    # for wall-slice phantoms that share DBSCAN cluster mass but no
+    # human-like vertical extent. Bounds are deliberately generous:
+    # infant in a cot vs. adult standing.
+    #   Y span:  20 cm  (newborn lying)  →  1.80 m  (adult standing)
+    #   X+Z span: 1.0 m  diagonal envelope (covers arms-out adult)
+    # Set ``subject_shape_y_min_m = 0.0`` to disable.
+    subject_shape_y_min_m: float = 0.20
+    subject_shape_y_max_m: float = 1.80
+    subject_shape_xz_max_m: float = 1.00
 
     # ── Monitoring volume (metres) ───────────────────────────────────────────
     # 2026-05-17: tightened Z from (0.0, 2.5) → (0.5, 2.0) after sofa at 2-3m
@@ -113,7 +142,14 @@ class KVConfig:
     # lower abdomen (bottom 55%), closing LiDAR-vs-Polar Δ by ~1 BPM and
     # raising SNR. Wider re-introduces head/arm noise; tighter (e.g. 0.60-
     # 0.70 sternum-only) is too sparse and noisier in this fps regime.
-    chest_y_band_min: float = 0.55
+    # PR X 2026-05-18: widened from (0.55, 0.75) to (0.30, 0.75) so the
+    # analysis window covers chest + abdomen, not just upper chest. Phase
+    # 1's clinical target (infants in cots) breathes predominantly with
+    # the diaphragm — abdominal motion is the load-bearing signal there,
+    # and a sternum-only band would miss it entirely. Adult validation
+    # may give back ~0.5-1 BPM of accuracy vs the narrower band, but the
+    # deployment use-case requires this trade.
+    chest_y_band_min: float = 0.30
     chest_y_band_max: float = 0.75
 
     # ── Chest X/Z lateral crop (PR T 2026-05-18) ─────────────────────────────

@@ -108,12 +108,43 @@ def cluster_residuals(points: np.ndarray, config) -> List[Cluster]:
     return clusters
 
 
+def is_human_shaped(
+    cluster: Cluster,
+    y_min_m: float = 0.20,
+    y_max_m: float = 1.80,
+    xz_max_m: float = 1.00,
+) -> bool:
+    """Reject clusters whose bounding box is incompatible with a human.
+
+    Wall-slice or sofa-edge residuals that get DBSCAN-clustered tend to
+    be horizontally elongated and short in Y; humans always have at
+    least ~20 cm of vertical extent (newborn lying) and at most ~1.8 m
+    (adult standing). Returns True if the cluster's bbox fits a generous
+    human envelope, False otherwise.
+
+    Set ``y_min_m = 0.0`` to disable the gate (returns True always).
+    """
+    if y_min_m <= 0.0:
+        return True
+    span = cluster.bbox_max - cluster.bbox_min
+    y_span = float(span[1])
+    if not (y_min_m <= y_span <= y_max_m):
+        return False
+    xz_span = float(max(span[0], span[2]))
+    if xz_span > xz_max_m:
+        return False
+    return True
+
+
 def select_subject_cluster(
     clusters: List[Cluster],
     monitoring_volume_bbox: np.ndarray,
     prev_centroid: Optional[np.ndarray] = None,
     lock_radius_m: float = 0.30,
     size_dominance_ratio: float = 2.0,
+    shape_y_min_m: float = 0.0,
+    shape_y_max_m: float = 1.80,
+    shape_xz_max_m: float = 1.00,
 ) -> Optional[np.ndarray]:
     """Select the most likely subject cluster from a list of clusters.
 
@@ -166,6 +197,7 @@ def select_subject_cluster(
     in_volume = [
         c for c in clusters
         if np.all(c.centroid >= bbox_min) and np.all(c.centroid <= bbox_max)
+        and is_human_shaped(c, shape_y_min_m, shape_y_max_m, shape_xz_max_m)
     ]
     if not in_volume:
         return None

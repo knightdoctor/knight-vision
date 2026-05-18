@@ -126,6 +126,45 @@ def test_dominance_does_not_fire_for_similar_sizes():
     print("  [ok] dominance leaves lock alone for similar-size clusters")
 
 
+def _make_box(centroid, span_xyz, n_points=400):
+    """Build a Cluster with a configurable bbox (used to test shape gate)."""
+    c = np.asarray(centroid, dtype=float)
+    s = np.asarray(span_xyz, dtype=float) / 2.0
+    pts = np.random.uniform(c - s, c + s, size=(n_points, 3))
+    return Cluster(
+        points=pts,
+        centroid=pts.mean(axis=0),
+        bbox_min=pts.min(axis=0),
+        bbox_max=pts.max(axis=0),
+        n_points=n_points,
+    )
+
+
+def test_shape_gate_rejects_thin_wall_slice():
+    """A wall-slice phantom has tall X span, tiny Y span — fails y_min."""
+    np.random.seed(1)
+    wall = _make_box([0.0, 1.0, 1.5], span_xyz=[0.8, 0.05, 0.02], n_points=600)
+    subj = _make_box([0.0, 1.0, 1.0], span_xyz=[0.4, 0.8,  0.30], n_points=400)
+    out = select_subject_cluster(
+        [wall, subj], VOLUME, prev_centroid=None,
+        shape_y_min_m=0.20, shape_y_max_m=1.80, shape_xz_max_m=1.00,
+    )
+    assert out is subj.points, (
+        "Shape gate should reject the 5cm-tall wall slice and pick the "
+        "human-shaped subject even though wall has more points"
+    )
+    print("  [ok] shape gate rejects thin wall slice")
+
+
+def test_shape_gate_disabled_by_default():
+    """shape_y_min_m=0.0 (default) bypasses the gate entirely."""
+    np.random.seed(1)
+    wall = _make_box([0.0, 1.0, 1.5], span_xyz=[0.8, 0.05, 0.02], n_points=600)
+    out = select_subject_cluster([wall], VOLUME, prev_centroid=None)
+    assert out is wall.points, "Default shape_y_min_m=0.0 should not gate"
+    print("  [ok] shape gate disabled by default")
+
+
 if __name__ == "__main__":
     print("Task #58 — sticky subject tracking sanity check")
     test_acquire_picks_largest()
@@ -134,4 +173,6 @@ if __name__ == "__main__":
     test_returns_none_when_volume_empty()
     test_size_dominance_breaks_phantom_lock()
     test_dominance_does_not_fire_for_similar_sizes()
+    test_shape_gate_rejects_thin_wall_slice()
+    test_shape_gate_disabled_by_default()
     print("\nAll checks passed.")

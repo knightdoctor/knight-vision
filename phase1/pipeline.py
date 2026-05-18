@@ -193,14 +193,26 @@ class Phase1Pipeline:
         self._measured_fps: Optional[float] = None
         last_result: Optional[Dict] = None
 
-        # Task #58 — sticky subject tracking. Keep the previous frame's
-        # subject centroid; the cluster selector prefers a cluster within
-        # ``subject_lock_radius_m`` of it over the largest-in-volume rule.
-        # ``_frames_without_subject`` counts consecutive blank frames;
-        # past ``subject_lock_timeout_frames`` we clear the lock so the
-        # next non-blank frame re-acquires (largest-in-volume).
+        # Task #58 / PR Y — sticky subject tracking with stable-acquisition
+        # gate. State machine:
+        #
+        #   prev_subject_centroid is None   → unlocked. Largest in-volume
+        #       cluster (after shape gate) is treated as a CANDIDATE.
+        #       We require ``subject_acquire_consistency_frames`` in a
+        #       row where the candidate stays within
+        #       ``subject_acquire_consistency_radius_m`` before promoting
+        #       it to a real lock. Defeats single-frame noise blobs.
+        #
+        #   prev_subject_centroid is not None → locked. select_subject_
+        #       cluster picks the candidate nearest prev within
+        #       ``subject_lock_radius_m``, with a size-dominance override
+        #       for the case where a much-larger cluster has appeared
+        #       (the wall-phantom case). Lock is cleared after
+        #       ``subject_lock_timeout_frames`` consecutive blank frames.
         prev_subject_centroid: Optional[np.ndarray] = None
         frames_without_subject = 0
+        candidate_centroid: Optional[np.ndarray] = None
+        candidate_streak = 0
 
         print(f"\n── Live Monitoring ({duration_seconds:.0f}s, "
               f"{n_frames} frames @ {cfg_fps:.0f} fps configured) ──")
@@ -229,12 +241,38 @@ class Phase1Pipeline:
                 n_clusters = len(clusters)
 
                 # ── Subject selection ─────────────────────────────────────
-                subject = select_subject_cluster(
+                pick = select_subject_cluster(
                     clusters,
                     self.config.monitoring_volume,
                     prev_centroid=prev_subject_centroid,
                     lock_radius_m=self.config.subject_lock_radius_m,
+                    shape_y_min_m=self.config.subject_shape_y_min_m,
+                    shape_y_max_m=self.config.subject_shape_y_max_m,
+                    shape_xz_max_m=self.config.subject_shape_xz_max_m,
                 )
+
+                if prev_subject_centroid is not None:
+                    # Locked: trust whatever select returned.
+                    subject = pick
+                elif pick is not None:
+                    # Unlocked: run stable-acquisition gate.
+                    c_centroid = pick.mean(axis=0)
+                    if (candidate_centroid is None or
+                            np.linalg.norm(c_centroid - candidate_centroid)
+                            > self.config.subject_acquire_consistency_radius_m):
+                        candidate_centroid = c_centroid
+                        candidate_streak = 1
+                    else:
+                        candidate_streak += 1
+                    if (candidate_streak >=
+                            self.config.subject_acquire_consistency_frames):
+                        # Promote candidate to lock.
+                        subject = pick
+                        prev_subject_centroid = c_centroid
+                        candidate_centroid = None
+                        candidate_streak = 0
+                    else:
+                        subject = None   # candidate not trusted yet
 
             # Append to uniform centroid-z series (NaN when no subject).
             # PREFER the chest sub-region centroid — the whole-subject
@@ -261,6 +299,8 @@ class Phase1Pipeline:
                 frames_without_subject += 1
                 if frames_without_subject >= self.config.subject_lock_timeout_frames:
                     prev_subject_centroid = None
+                    candidate_centroid = None
+                    candidate_streak = 0
             self._centroid_z.append(cz)
 
             # Per-frame hook for orchestrator (logging / recording / viewer).
@@ -376,9 +416,11 @@ class Phase1Pipeline:
         self._rr_history   = []
         last_result: Optional[Dict] = None
 
-        # Mirror run_live's sticky-tracking state (task #58).
+        # Mirror run_live's sticky-tracking state (task #58 + PR Y).
         prev_subject_centroid: Optional[np.ndarray] = None
         frames_without_subject = 0
+        candidate_centroid: Optional[np.ndarray] = None
+        candidate_streak = 0
 
         print(f"\n── Replay ({len(frames)} frames @ {fps:.0f} fps) ──")
 
@@ -392,12 +434,32 @@ class Phase1Pipeline:
             if residuals.shape[0] >= self.config.cluster_min_points:
                 clusters = cluster_residuals(residuals, self.config)
                 n_clusters = len(clusters)
-                subject = select_subject_cluster(
+                pick = select_subject_cluster(
                     clusters,
                     self.config.monitoring_volume,
                     prev_centroid=prev_subject_centroid,
                     lock_radius_m=self.config.subject_lock_radius_m,
+                    shape_y_min_m=self.config.subject_shape_y_min_m,
+                    shape_y_max_m=self.config.subject_shape_y_max_m,
+                    shape_xz_max_m=self.config.subject_shape_xz_max_m,
                 )
+                if prev_subject_centroid is not None:
+                    subject = pick
+                elif pick is not None:
+                    c_centroid = pick.mean(axis=0)
+                    if (candidate_centroid is None or
+                            np.linalg.norm(c_centroid - candidate_centroid)
+                            > self.config.subject_acquire_consistency_radius_m):
+                        candidate_centroid = c_centroid
+                        candidate_streak = 1
+                    else:
+                        candidate_streak += 1
+                    if (candidate_streak >=
+                            self.config.subject_acquire_consistency_frames):
+                        subject = pick
+                        prev_subject_centroid = c_centroid
+                        candidate_centroid = None
+                        candidate_streak = 0
                 if subject is not None:
                     self._frame_buffer.append(subject)
                     subject_pts = subject.shape[0]
@@ -409,6 +471,8 @@ class Phase1Pipeline:
                 frames_without_subject += 1
                 if frames_without_subject >= self.config.subject_lock_timeout_frames:
                     prev_subject_centroid = None
+                    candidate_centroid = None
+                    candidate_streak = 0
 
             if (i + 1) % compute_rr_every == 0 and len(self._frame_buffer) >= 20:
                 result = extract_rr(self._frame_buffer, fps, self.config)
