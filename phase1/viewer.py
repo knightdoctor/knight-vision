@@ -97,7 +97,15 @@ _latest_depth_jpg: Optional[bytes] = None
 _depth_active = False
 _radar_topdown_lock = threading.Lock()
 _latest_radar_topdown_jpg: Optional[bytes] = None
+_radar_side_lock = threading.Lock()
+_latest_radar_side_jpg: Optional[bytes] = None
 _started = False
+
+# Radar geometry — IWR6843AOPEVM antenna-on-package.
+RADAR_FOV_AZ_DEG = 60.0   # ±60° azimuth (X-Z plane half-angle)
+RADAR_FOV_EL_DEG = 60.0   # ±60° elevation (Y-Z plane half-angle)
+RADAR_SIDE_PANEL_H = 220  # px — shorter panel for side elevation view
+RADAR_SIDE_Y_LIMITS = (-0.8, 1.0)   # metres (down → up)
 
 # Control state (browser → pipeline). Pipeline polls these each frame.
 _control = {
@@ -221,8 +229,8 @@ def set_radar_frame(points: np.ndarray) -> None:
         _state["radar_n"]   = int(len(pts))
         _state["radar_active"] = True
         _state["radar_trail"].append((time.time(), pts))
-        # Cap trail age at 3s; sidecar pushes ~2 Hz so this is ~6 entries.
-        cutoff = time.time() - 3.0
+        # Cap trail age at 5s; sidecar pushes ~10 Hz so ~50 entries.
+        cutoff = time.time() - 5.0
         _state["radar_trail"] = [(t, p) for (t, p) in _state["radar_trail"]
                                  if t >= cutoff]
 
@@ -431,6 +439,58 @@ def _render_radar_topdown_jpeg() -> Optional[bytes]:
         cv2.line(canvas, (0, y_px), (PANEL_W, y_px), GRID, 1)
         cv2.putText(canvas, f"{m}m", (4, y_px - 3),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.35, DIM, 1, cv2.LINE_AA)
+    # ── FOV cone overlay: ±60° azimuth from sensor at (X=0, Z=0).
+    # Sensor in this panel sits at x_sensor_px (X=0) at the BOTTOM of
+    # the canvas (Z=Z_min line). Cone fans upward and outward.
+    import math
+    x_sensor_px, _ = _world_to_topdown_px(np.array([0.0]),
+                                          np.array([TOPDOWN_Z_LIMITS[0]]))
+    x_sensor_px = int(x_sensor_px[0])
+    sensor_y_px = PANEL_H
+    # Build cone polygon (sensor + two edge points at max range).
+    rng = TOPDOWN_Z_LIMITS[1] - TOPDOWN_Z_LIMITS[0]
+    tan_az = math.tan(math.radians(RADAR_FOV_AZ_DEG))
+    edge_x_left  =  -tan_az * rng
+    edge_x_right = +tan_az * rng
+    xl_px, yl_px = _world_to_topdown_px(np.array([edge_x_left]),
+                                         np.array([TOPDOWN_Z_LIMITS[1]]))
+    xr_px, yr_px = _world_to_topdown_px(np.array([edge_x_right]),
+                                         np.array([TOPDOWN_Z_LIMITS[1]]))
+    cone = np.array([[x_sensor_px, sensor_y_px],
+                     [int(xl_px[0]), int(yl_px[0])],
+                     [int(xr_px[0]), int(yr_px[0])]], dtype=np.int32)
+    # Faint fill inside cone (visible "radar can see here" region).
+    overlay = canvas.copy()
+    cv2.fillPoly(overlay, [cone], (50, 30, 60))
+    cv2.addWeighted(overlay, 0.35, canvas, 0.65, 0, dst=canvas)
+    # Cone edges.
+    cv2.line(canvas, (x_sensor_px, sensor_y_px),
+             (int(xl_px[0]), int(yl_px[0])), (100, 60, 130), 1, cv2.LINE_AA)
+    cv2.line(canvas, (x_sensor_px, sensor_y_px),
+             (int(xr_px[0]), int(yr_px[0])), (100, 60, 130), 1, cv2.LINE_AA)
+    # Range arcs at 1, 2, 3 m.
+    for r in (1.0, 2.0, 3.0):
+        if r < TOPDOWN_Z_LIMITS[0] or r > TOPDOWN_Z_LIMITS[1]:
+            continue
+        # Sample arc points at azimuth -60° .. +60°.
+        arc_pts = []
+        for az_deg in range(-int(RADAR_FOV_AZ_DEG), int(RADAR_FOV_AZ_DEG) + 1, 5):
+            az = math.radians(az_deg)
+            x_w = r * math.sin(az)
+            z_w = r * math.cos(az)
+            if z_w < TOPDOWN_Z_LIMITS[0] or z_w > TOPDOWN_Z_LIMITS[1]:
+                continue
+            xp, yp = _world_to_topdown_px(np.array([x_w]), np.array([z_w]))
+            arc_pts.append([int(xp[0]), int(yp[0])])
+        if len(arc_pts) >= 2:
+            cv2.polylines(canvas, [np.array(arc_pts, dtype=np.int32)],
+                          False, (80, 50, 100), 1, cv2.LINE_AA)
+            # Range label at azimuth=0 (centre).
+            xp, yp = _world_to_topdown_px(np.array([0.0]), np.array([r]))
+            cv2.putText(canvas, f"{r:.0f}m", (int(xp[0]) + 4, int(yp[0])),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.32, (120, 80, 140),
+                        1, cv2.LINE_AA)
+
     # Render trail oldest -> newest so newer pixels overwrite older ones.
     now = time.time()
     total_pts = 0
@@ -438,8 +498,8 @@ def _render_radar_topdown_jpeg() -> Optional[bytes]:
         if len(pts) == 0:
             continue
         age = max(0.0, now - ts)
-        # Fade: 1.0 at age 0 → 0.15 at age 3s.
-        alpha = max(0.15, 1.0 - (age / 3.0) * 0.85)
+        # Fade: 1.0 at age 0 → 0.15 at age 5s.
+        alpha = max(0.15, 1.0 - (age / 5.0) * 0.85)
         col = tuple(int(c * alpha) for c in (255, 60, 200))
         x_px, y_px = _world_to_topdown_px(pts[:, 0], pts[:, 2])
         in_view = ((x_px >= 0) & (x_px < PANEL_W)
@@ -452,7 +512,8 @@ def _render_radar_topdown_jpeg() -> Optional[bytes]:
     if not active:
         msg = "radar OFF — launch with --record-radar"
     else:
-        msg = (f"radar  current {n_now} pts  ·  3s trail {total_pts} pts "
+        msg = (f"radar plan  ±{RADAR_FOV_AZ_DEG:.0f}° az  ·  "
+               f"current {n_now} pts  ·  5s trail {total_pts} "
                f"({len(trail)} frames)")
     cv2.putText(canvas, msg, (8, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.42,
                 TEXT, 1, cv2.LINE_AA)
@@ -460,8 +521,111 @@ def _render_radar_topdown_jpeg() -> Optional[bytes]:
     return jpg.tobytes() if ok else None
 
 
+def _world_to_side_px(z: np.ndarray, y: np.ndarray) -> tuple:
+    """Map world (Z forward, Y up) metres → side-elevation panel pixels.
+    Z is horizontal (left → right = closer → farther); Y is vertical
+    (top of panel = up). Sensor at left edge (Z=Z_min) bottom-ish (Y=0)."""
+    zmin, zmax = TOPDOWN_Z_LIMITS
+    ymin, ymax = RADAR_SIDE_Y_LIMITS
+    px = ((z - zmin) / (zmax - zmin) * PANEL_W).astype(np.int32)
+    py = (RADAR_SIDE_PANEL_H - (y - ymin) / (ymax - ymin)
+          * RADAR_SIDE_PANEL_H).astype(np.int32)
+    return px, py
+
+
+def _render_radar_side_jpeg() -> Optional[bytes]:
+    """Radar side-elevation panel (Y vs Z). Shows what the radar sees in
+    the vertical plane — useful for confirming the chest cluster is at
+    expected height (not picking up legs/head/ceiling)."""
+    import math
+    with _LOCK:
+        trail = list(_state["radar_trail"])
+        active = _state["radar_active"]
+    H = RADAR_SIDE_PANEL_H
+    canvas = np.full((H, PANEL_W, 3), BG, dtype=np.uint8)
+    cv2.rectangle(canvas, (0, 0), (PANEL_W, H), PANEL, -1)
+    # Grid: Z gridlines every 1m, Y gridlines every 0.5m.
+    for m in range(int(TOPDOWN_Z_LIMITS[0]), int(TOPDOWN_Z_LIMITS[1]) + 1):
+        x_px = int((m - TOPDOWN_Z_LIMITS[0]) /
+                   (TOPDOWN_Z_LIMITS[1] - TOPDOWN_Z_LIMITS[0]) * PANEL_W)
+        cv2.line(canvas, (x_px, 0), (x_px, H), GRID, 1)
+        cv2.putText(canvas, f"{m}m", (x_px + 2, H - 4),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, DIM, 1, cv2.LINE_AA)
+    for y_m_int in range(-1, 2):
+        y_m = float(y_m_int)
+        if not (RADAR_SIDE_Y_LIMITS[0] <= y_m <= RADAR_SIDE_Y_LIMITS[1]):
+            continue
+        y_px = int(H - (y_m - RADAR_SIDE_Y_LIMITS[0]) /
+                   (RADAR_SIDE_Y_LIMITS[1] - RADAR_SIDE_Y_LIMITS[0]) * H)
+        cv2.line(canvas, (0, y_px), (PANEL_W, y_px), GRID, 1)
+        cv2.putText(canvas, f"{y_m:+.1f}m", (4, y_px - 3),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, DIM, 1, cv2.LINE_AA)
+    # FOV ±60° elevation cone, from sensor at Z=Z_min, Y=0.
+    sx_px, sy_px = _world_to_side_px(np.array([TOPDOWN_Z_LIMITS[0]]),
+                                      np.array([0.0]))
+    sx_px = int(sx_px[0]); sy_px = int(sy_px[0])
+    rng = TOPDOWN_Z_LIMITS[1] - TOPDOWN_Z_LIMITS[0]
+    tan_el = math.tan(math.radians(RADAR_FOV_EL_DEG))
+    y_top    = +tan_el * rng
+    y_bottom = -tan_el * rng
+    xt_px, yt_px = _world_to_side_px(np.array([TOPDOWN_Z_LIMITS[1]]),
+                                      np.array([y_top]))
+    xb_px, yb_px = _world_to_side_px(np.array([TOPDOWN_Z_LIMITS[1]]),
+                                      np.array([y_bottom]))
+    cone = np.array([[sx_px, sy_px],
+                     [int(xt_px[0]), int(yt_px[0])],
+                     [int(xb_px[0]), int(yb_px[0])]], dtype=np.int32)
+    overlay = canvas.copy()
+    cv2.fillPoly(overlay, [cone], (50, 30, 60))
+    cv2.addWeighted(overlay, 0.35, canvas, 0.65, 0, dst=canvas)
+    cv2.line(canvas, (sx_px, sy_px),
+             (int(xt_px[0]), int(yt_px[0])), (100, 60, 130), 1, cv2.LINE_AA)
+    cv2.line(canvas, (sx_px, sy_px),
+             (int(xb_px[0]), int(yb_px[0])), (100, 60, 130), 1, cv2.LINE_AA)
+    # Range arcs at 1, 2, 3 m (semicircles from sensor in Z-Y plane).
+    for r in (1.0, 2.0, 3.0):
+        arc_pts = []
+        for el_deg in range(-int(RADAR_FOV_EL_DEG),
+                            int(RADAR_FOV_EL_DEG) + 1, 5):
+            el = math.radians(el_deg)
+            y_w = r * math.sin(el)
+            z_w = r * math.cos(el)
+            if z_w < TOPDOWN_Z_LIMITS[0] or z_w > TOPDOWN_Z_LIMITS[1]:
+                continue
+            xp, yp = _world_to_side_px(np.array([z_w]), np.array([y_w]))
+            arc_pts.append([int(xp[0]), int(yp[0])])
+        if len(arc_pts) >= 2:
+            cv2.polylines(canvas, [np.array(arc_pts, dtype=np.int32)],
+                          False, (80, 50, 100), 1, cv2.LINE_AA)
+    # Radar points: trail with fading.
+    now = time.time()
+    total_pts = 0
+    for ts, pts in trail:
+        if len(pts) == 0:
+            continue
+        age = max(0.0, now - ts)
+        alpha = max(0.15, 1.0 - (age / 3.0) * 0.85)
+        col = tuple(int(c * alpha) for c in (255, 60, 200))
+        x_px, y_px = _world_to_side_px(pts[:, 2], pts[:, 1])
+        in_view = ((x_px >= 0) & (x_px < PANEL_W)
+                   & (y_px >= 0) & (y_px < H))
+        for u, v in zip(x_px[in_view], y_px[in_view]):
+            cv2.circle(canvas, (int(u), int(v)), 4, col, -1)
+        total_pts += int(in_view.sum())
+    # HUD.
+    cv2.rectangle(canvas, (0, 0), (PANEL_W, 20), (0, 0, 0), -1)
+    msg = (f"radar side  Y vs Z  ±{RADAR_FOV_EL_DEG:.0f}° el  ·  "
+           f"trail {total_pts}" if active else
+           "radar OFF — launch with --record-radar")
+    cv2.putText(canvas, msg, (8, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.40,
+                TEXT, 1, cv2.LINE_AA)
+    ok, jpg = cv2.imencode(".jpg", canvas, [cv2.IMWRITE_JPEG_QUALITY, 78])
+    return jpg.tobytes() if ok else None
+
+
 def _render_loop() -> None:
-    global _latest_topdown_jpg, _latest_waveform_jpg, _latest_radar_topdown_jpg
+    global _latest_topdown_jpg, _latest_waveform_jpg
+    global _latest_radar_topdown_jpg, _latest_radar_side_jpg
     period = 1.0 / RENDER_FPS
     while True:
         t0 = time.time()
@@ -478,6 +642,10 @@ def _render_loop() -> None:
             if jpg is not None:
                 with _radar_topdown_lock:
                     _latest_radar_topdown_jpg = jpg
+            jpg = _render_radar_side_jpeg()
+            if jpg is not None:
+                with _radar_side_lock:
+                    _latest_radar_side_jpg = jpg
         except Exception as e:
             print(f"[viewer] render error: {type(e).__name__}: {e}")
         elapsed = time.time() - t0
@@ -669,8 +837,13 @@ PAGE = """<!doctype html>
         </div>
       </div>
       <div id="radar_card" class="thumb" style="padding:6px">
-        <div class="lbl">Radar · top-down (X/Z)</div>
+        <div class="lbl">Radar · top-down (X/Z, ±60° az cone)</div>
         <img id="radar_feed" src="/radar_stream"
+             style="width:100%;height:auto;border-radius:3px;background:#000">
+      </div>
+      <div id="radar_side_card" class="thumb" style="padding:6px">
+        <div class="lbl">Radar · side elevation (Y/Z, ±60° el cone)</div>
+        <img id="radar_side_feed" src="/radar_side_stream"
              style="width:100%;height:auto;border-radius:3px;background:#000">
       </div>
       <div class="substrip">
@@ -975,6 +1148,14 @@ def rgb_stream():
 def radar_stream():
     gen = _make_stream_gen(_radar_topdown_lock,
                            lambda: _latest_radar_topdown_jpg)
+    return Response(gen(),
+                    mimetype="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.route("/radar_side_stream")
+def radar_side_stream():
+    gen = _make_stream_gen(_radar_side_lock,
+                           lambda: _latest_radar_side_jpg)
     return Response(gen(),
                     mimetype="multipart/x-mixed-replace; boundary=frame")
 

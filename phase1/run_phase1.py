@@ -195,15 +195,15 @@ class _RadarSidecar:
                     with self._lock:
                         self._buffer = self._buffer[-6000:]
 
-                # PR Q: push to viewer at ~2 Hz (every 5 frames at ~10 fps);
-                # compute live BPM less often to keep CPU light.
+                # PR Q+R: push every radar frame (~10 Hz) to viewer so the
+                # 5s trail accumulates enough dots to be legible. BPM
+                # compute stays infrequent to keep CPU light.
                 self._frame_counter += 1
                 if self.viewer is not None:
-                    if self._frame_counter % 5 == 0:
-                        try:
-                            self.viewer.set_radar_frame(pts)
-                        except Exception:
-                            pass
+                    try:
+                        self.viewer.set_radar_frame(pts)
+                    except Exception:
+                        pass
                     if self._frame_counter % self._bpm_compute_every_n_frames == 0:
                         bpm = self._compute_bpm()
                         if bpm is not None:
