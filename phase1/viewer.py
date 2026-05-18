@@ -48,6 +48,7 @@ TEXT   = (220, 220, 220)
 DIM    = (140, 140, 140)
 RESID  = (220, 120, 30)             # blue-ish — residual cloud
 SUBJ   = (40, 170, 250)             # orange — subject cluster
+CHEST  = (60, 240, 250)             # bright yellow — chest band (analysis subset)
 CENTRD = (60, 80, 240)              # red — centroid ring
 TRACE  = (120, 220, 60)             # green — centroid-z trace
 
@@ -57,6 +58,7 @@ _state = {
     "frame_no":   0,
     "residuals":  np.empty((0, 3), dtype=float),
     "subject":    None,
+    "chest":      None,   # chest-band subset of subject — the actual FFT input
     "n_clusters": 0,
     "cz_history": [],
     "started_at": None,
@@ -125,14 +127,21 @@ app = Flask(__name__)
 
 
 def set_frame(frame_no: int, residuals: np.ndarray, subject,
-              n_clusters: int, cz: float) -> None:
-    """Push the latest pipeline frame data into shared viewer state."""
+              n_clusters: int, cz: float, chest=None) -> None:
+    """Push the latest pipeline frame data into shared viewer state.
+
+    `chest` is the chest-band subset of `subject` that goes into the FFT.
+    The viewer highlights it in CHEST colour so the operator can confirm
+    by eye that the analysis window is sitting on torso, not head/legs.
+    Pass None when the chest band couldn't be isolated — viewer will then
+    skip the highlight overlay (whole subject was used as the FFT input)."""
     with _LOCK:
         if _state["started_at"] is None:
             _state["started_at"] = time.time()
         _state["frame_no"]   = frame_no
         _state["residuals"]  = residuals if residuals is not None else np.empty((0, 3))
         _state["subject"]    = subject
+        _state["chest"]      = chest
         _state["n_clusters"] = n_clusters
         hist = _state["cz_history"]
         hist.append(cz)
@@ -161,6 +170,7 @@ def reset() -> None:
         _state["frame_no"]   = 0
         _state["residuals"]  = np.empty((0, 3), dtype=float)
         _state["subject"]    = None
+        _state["chest"]      = None
         _state["n_clusters"] = 0
         _state["cz_history"] = []
         _state["started_at"] = None
@@ -289,7 +299,8 @@ def _world_to_topdown_px(x: np.ndarray, z: np.ndarray) -> tuple:
 
 
 def _draw_topdown(canvas: np.ndarray, residuals: np.ndarray,
-                  subject, n_clusters: int, frame_no: int) -> None:
+                  subject, n_clusters: int, frame_no: int,
+                  chest=None) -> None:
     h, w = canvas.shape[:2]
     cv2.rectangle(canvas, (0, 0), (w, h), PANEL, -1)
     # Grid: every 1 m
@@ -323,9 +334,22 @@ def _draw_topdown(canvas: np.ndarray, residuals: np.ndarray,
         cu, cv_ = _world_to_topdown_px(np.array([cx]), np.array([cz]))
         cv2.circle(canvas, (int(cu[0]), int(cv_[0])), 14, CENTRD, 2)
 
+    # Chest band overlay (analysis subset that actually feeds the FFT).
+    # Drawn on top of subject so the bright yellow visually replaces
+    # the orange wherever the chest mask passes. Slightly bigger radius
+    # to make the band pop against the subject dots.
+    if chest is not None and len(chest):
+        x_px, y_px = _world_to_topdown_px(chest[:, 0], chest[:, 2])
+        in_view = (x_px >= 0) & (x_px < PANEL_W) & (y_px >= 0) & (y_px < PANEL_H)
+        for u, v in zip(x_px[in_view], y_px[in_view]):
+            cv2.circle(canvas, (int(u), int(v)), 3, CHEST, -1)
+
     # HUD strip
     cv2.rectangle(canvas, (0, 0), (PANEL_W, 22), (0, 0, 0), -1)
-    msg = f"frame {frame_no}  |  residuals {len(residuals)}  |  clusters {n_clusters}"
+    chest_n = 0 if chest is None else len(chest)
+    subj_n  = 0 if subject is None else len(subject)
+    msg = (f"frame {frame_no}  |  residuals {len(residuals)}  |  "
+           f"clusters {n_clusters}  |  subj {subj_n} / chest {chest_n}")
     cv2.putText(canvas, msg, (8, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.42,
                 TEXT, 1, cv2.LINE_AA)
 
@@ -397,10 +421,11 @@ def _render_topdown_jpeg() -> Optional[bytes]:
     with _LOCK:
         residuals  = _state["residuals"]
         subject    = _state["subject"]
+        chest      = _state["chest"]
         n_clusters = _state["n_clusters"]
         frame_no   = _state["frame_no"]
     canvas = np.full((PANEL_H, PANEL_W, 3), BG, dtype=np.uint8)
-    _draw_topdown(canvas, residuals, subject, n_clusters, frame_no)
+    _draw_topdown(canvas, residuals, subject, n_clusters, frame_no, chest=chest)
     ok, jpg = cv2.imencode(".jpg", canvas, [cv2.IMWRITE_JPEG_QUALITY, 78])
     return jpg.tobytes() if ok else None
 
@@ -831,6 +856,7 @@ PAGE = """<!doctype html>
             <span class="tip">
               Top-down view in shared frame: X right, Z forward.
               Subject points orange, residual cloud blue, centroid red ring.
+              Yellow points = chest band (the FFT analysis subset).
               Waveform: detrended Z displacement (mm), last 10s.
             </span>
           </span>

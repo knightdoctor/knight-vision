@@ -219,6 +219,7 @@ class Phase1Pipeline:
             residuals = self.background.subtract(frame)
 
             subject = None
+            chest = None
             n_clusters = 0
             subject_pts = 0
 
@@ -246,6 +247,7 @@ class Phase1Pipeline:
                     subject,
                     y_band_frac=(self.config.chest_y_band_min,
                                  self.config.chest_y_band_max),
+                    xz_radius_m=self.config.chest_xz_radius_m,
                 )
                 analysis_pts = chest if chest is not None else subject
                 cz = float(analysis_pts[:, 2].mean())
@@ -262,8 +264,12 @@ class Phase1Pipeline:
             self._centroid_z.append(cz)
 
             # Per-frame hook for orchestrator (logging / recording / viewer).
+            # `chest` is the chest-band subset used as the FFT input — viewer
+            # highlights it so the operator can verify the analysis window
+            # is on torso, not head/legs.
             if frame_callback is not None:
-                frame_callback(i, frame, residuals, subject, n_clusters, cz)
+                frame_callback(i, frame, residuals, subject, n_clusters, cz,
+                               chest=chest)
 
             # External stop request (viewer Stop Session button, 's' key).
             if should_stop is not None and should_stop():

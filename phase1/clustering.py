@@ -187,8 +187,10 @@ def select_chest_subset(
     subject_points: np.ndarray,
     y_band_frac: tuple = (0.50, 0.85),
     min_points: int = 30,
+    xz_radius_m: Optional[float] = None,
 ) -> Optional[np.ndarray]:
-    """Pick the upper ~chest portion of a subject point cloud by Y.
+    """Pick the upper ~chest portion of a subject point cloud by Y, then
+    crop laterally around the cluster's median X/Z centre.
 
     Subject is assumed to be sitting/standing in the shared frame
     (X right, **Y up**, Z forward). We keep points whose Y is in
@@ -196,6 +198,15 @@ def select_chest_subset(
     The lower bound excludes legs/abdomen (which translate with body
     sway but don't expand with breath); the upper bound excludes the
     head (so head bobs don't dominate).
+
+    PR T (2026-05-18): when ``xz_radius_m`` is set, also drop points
+    whose X or Z deviates from the cluster's median X/Z by more than
+    ``xz_radius_m`` metres. This stops the analysis subset from bleeding
+    onto adjacent furniture/wall residuals that DBSCAN chains into the
+    same cluster when the subject's arm/desk/chair-back narrows the gap
+    below ``dbscan_eps``. Median is used (not mean) so the centre stays
+    anchored on the subject's torso even when a tail of cluster points
+    leaks toward background structure.
 
     Returns ``None`` if the subject is too small or the chest band is
     too sparse — in that case the caller should fall back to the
@@ -210,6 +221,19 @@ def select_chest_subset(
     band_lo = float(y.min()) + y_band_frac[0] * y_range
     band_hi = float(y.min()) + y_band_frac[1] * y_range
     chest = subject_points[(y >= band_lo) & (y <= band_hi)]
+    if xz_radius_m is not None and chest.shape[0] > 0:
+        # Anchor on the FULL cluster's median X/Z (not the Y-band subset's).
+        # If the cluster bleeds into furniture, the Y-band slice can end up
+        # dominated by furniture points — anchoring on its own median would
+        # then lock the crop onto the furniture. The full-cluster median is
+        # weighted toward whichever sub-region is densest, which for a real
+        # subject cluster is the torso blob, not the leaked-into-background
+        # tail.
+        x_anchor = float(np.median(subject_points[:, 0]))
+        z_anchor = float(np.median(subject_points[:, 2]))
+        in_box = ((np.abs(chest[:, 0] - x_anchor) <= xz_radius_m) &
+                  (np.abs(chest[:, 2] - z_anchor) <= xz_radius_m))
+        chest = chest[in_box]
     if chest.shape[0] < min_points:
         return None
     return chest

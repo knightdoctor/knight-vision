@@ -450,7 +450,8 @@ class _Orchestrator:
             self._last_rr_pushed += 1
 
     def frame_callback(self, i: int, frame: np.ndarray, residuals: np.ndarray,
-                       subject, n_clusters: int, cz: float) -> None:
+                       subject, n_clusters: int, cz: float,
+                       chest=None) -> None:
         self.n_frames_seen = i + 1
 
         # Apply any pending viewer-side record toggle before persisting.
@@ -477,7 +478,8 @@ class _Orchestrator:
             self._drain_gt_to_csv()
 
         if self._viewer is not None:
-            self._viewer.set_frame(i + 1, residuals, subject, n_clusters, cz)
+            self._viewer.set_frame(i + 1, residuals, subject, n_clusters, cz,
+                                   chest=chest)
             if self.pipe is not None:
                 self.push_rr_to_viewer(self.pipe)
             if self.rgb_enabled and (i % self._rgb_every_n == 0):

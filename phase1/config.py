@@ -116,6 +116,15 @@ class KVConfig:
     chest_y_band_min: float = 0.55
     chest_y_band_max: float = 0.75
 
+    # ── Chest X/Z lateral crop (PR T 2026-05-18) ─────────────────────────────
+    # After picking the Y band, also drop points more than this many metres
+    # from the band's median X / Z. Prevents the chest band from spilling onto
+    # furniture or wall residuals when DBSCAN chains the subject's cluster
+    # through an arm-on-desk or chair-back to nearby static structure.
+    # 0.30 m = ~60 cm box around the torso, ample for breathing-driven
+    # X-spread but tight enough to exclude desks ~50 cm to either side.
+    chest_xz_radius_m: float = 0.30
+
     # ── SNR / confidence thresholds ──────────────────────────────────────────
     snr_high_threshold: float = 5.0    # tightened 2026-05-16 per M1 requirement
     snr_medium_threshold: float = 3.0  # LOW reports value with caveat, never suppress
