@@ -34,10 +34,11 @@ import csv
 import dataclasses
 import json
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Tuple
 
 # Ensure the project root is on sys.path so the package imports resolve.
 _HERE = Path(__file__).resolve().parent
@@ -95,10 +96,91 @@ def _make_parser() -> argparse.ArgumentParser:
     p.add_argument("--validation-gt-timeout", type=float, default=30.0,
                    help="Seconds to wait for first Polar GT entry before "
                         "aborting in --validation mode (default 30).")
+    p.add_argument("--record-radar", action="store_true",
+                   help="Radar sidecar: capture IWR6843 detected-points "
+                        "continuously in a background thread; on each "
+                        "recording, slice the radar buffer to the recording "
+                        "window and save run_dir/radar.npz alongside the "
+                        "LiDAR artefacts. R press in viewer starts and stops "
+                        "BOTH modalities. Mutually exclusive with --radar.")
     return p
 
 
 # ── Orchestration shared by run_demo / run_live ───────────────────────────
+
+class _RadarSidecar:
+    """Continuous radar capture in a background thread; orchestrator slices
+    the recording window when R-press finalises a LiDAR recording.
+
+    Independent of Pipeline's radar handling (which is currently capture-
+    but-unused). Owns its own RadarDriver instance — do NOT enable both
+    --radar (Pipeline) and --record-radar (sidecar): they will race for
+    /dev/ttyUSB0+1.
+
+    The thread runs continuously once started; recording-window slicing
+    happens at R-press time, not at capture time. Means radar is always
+    warm when R is pressed (no warmup latency), and the only data lost is
+    pre-recording history we don't need.
+    """
+
+    def __init__(self, config) -> None:
+        from phase1.drivers.radar_driver import RadarDriver
+        self.driver = RadarDriver(config)
+        self._buffer: List[Tuple[float, "np.ndarray"]] = []
+        self._lock = threading.Lock()
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._error: Optional[str] = None
+
+    def start(self) -> None:
+        if self._running:
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._run, daemon=True,
+                                        name="radar-sidecar")
+        self._thread.start()
+        print("[radar-sidecar] capture thread started")
+
+    def _run(self) -> None:
+        try:
+            while self._running:
+                pts = self.driver.capture_frame()
+                if pts is None:
+                    pts = np.zeros((0, 3), dtype=np.float32)
+                t = time.time()
+                with self._lock:
+                    self._buffer.append((t, pts.astype(np.float32)))
+                # Trim ancient history (>10 min) to bound memory.
+                if len(self._buffer) > 9000:
+                    with self._lock:
+                        self._buffer = self._buffer[-6000:]
+        except Exception as e:
+            self._error = str(e)
+            print(f"[radar-sidecar] thread error: {type(e).__name__}: {e}")
+
+    def stop(self) -> None:
+        self._running = False
+        if self._thread is not None:
+            self._thread.join(timeout=3.0)
+        try:
+            self.driver.close()
+        except Exception:
+            pass
+        print("[radar-sidecar] stopped")
+
+    def slice_window(self, t0_abs: float, t1_abs: float
+                     ) -> Tuple[List[float], List["np.ndarray"]]:
+        """Return (timestamps_abs[], point_clouds[]) for frames with
+        t0_abs <= ts <= t1_abs. Empty lists if no frames in window."""
+        with self._lock:
+            buf = list(self._buffer)
+        ts, frames = [], []
+        for t, pts in buf:
+            if t0_abs <= t <= t1_abs:
+                ts.append(t)
+                frames.append(pts)
+        return ts, frames
+
 
 class _Orchestrator:
     """Session-level state.
@@ -156,6 +238,22 @@ class _Orchestrator:
             self._viewer = viewer
         else:
             self._viewer = None
+
+        # Radar sidecar (PR P 2026-05-18): continuous radar capture in a
+        # background thread, sliced to recording windows at R-press time.
+        # Independent of Pipeline's --radar flag (which is ride-along-but-
+        # unused today). On init failure we warn but don't fail the run.
+        self._radar_sidecar: Optional[_RadarSidecar] = None
+        if getattr(args, "record_radar", False):
+            try:
+                self._radar_sidecar = _RadarSidecar(config)
+                self._radar_sidecar.start()
+            except Exception as e:
+                print(f"[radar-sidecar] init FAILED ({type(e).__name__}: {e}) "
+                      f"— continuing without radar.")
+                self._radar_sidecar = None
+        self._record_t0_abs: Optional[float] = None
+        self._record_t1_abs: Optional[float] = None
 
         # Current recording state (None when not recording).
         self.run_dir: Optional[Path] = None
@@ -218,6 +316,10 @@ class _Orchestrator:
         if self._viewer is not None:
             self._gt_idx = len(self._viewer.get_gt_history())
 
+        # Mark recording-start wall time for radar slicing (if sidecar on).
+        self._record_t0_abs = time.time()
+        self._record_t1_abs = None
+
         self.recording = True
         if self._viewer is not None:
             self._viewer.set_recording(True)
@@ -226,6 +328,9 @@ class _Orchestrator:
     def _stop_recording(self) -> None:
         if not self.recording:
             return
+        # Capture recording-end wall time BEFORE finalize so radar slice
+        # bounds are correct when _finalize_current calls _save_radar_window.
+        self._record_t1_abs = time.time()
         # Snapshot pipe RR history end index so finalize plots only this window.
         result = self.pipe._rr_history[-1] if (self.pipe and self.pipe._rr_history) else None
         self._finalize_current(result)
@@ -233,6 +338,31 @@ class _Orchestrator:
         if self._viewer is not None:
             self._viewer.set_recording(False)
         print(f"[run] ■ recording stopped")
+
+    def _save_radar_window(self) -> None:
+        """If the radar sidecar is running and we have a recording window,
+        slice the radar buffer to that window and dump radar.npz into the
+        current run_dir alongside the LiDAR artefacts."""
+        if self._radar_sidecar is None or self.run_dir is None:
+            return
+        if self._record_t0_abs is None or self._record_t1_abs is None:
+            return
+        ts, frames = self._radar_sidecar.slice_window(
+            self._record_t0_abs, self._record_t1_abs)
+        if not frames:
+            print(f"[radar-sidecar] no frames in recording window "
+                  f"(t0={self._record_t0_abs:.3f} t1={self._record_t1_abs:.3f}) "
+                  f"— skipping save")
+            return
+        data = {f"f{i:05d}": f for i, f in enumerate(frames)}
+        data["timestamps_abs"] = np.array(ts, dtype=np.float64)
+        data["timestamps_rel"] = data["timestamps_abs"] - self._record_t0_abs
+        data["recording_t0_abs"] = np.array([self._record_t0_abs],
+                                            dtype=np.float64)
+        out = self.run_dir / "radar.npz"
+        np.savez_compressed(out, **data)
+        print(f"[radar-sidecar] saved {len(frames)} frames "
+              f"({ts[-1]-ts[0]:.1f}s span) → {out}")
 
     def _sync_with_viewer(self) -> None:
         """Apply any viewer-side recording toggles (button or R key)."""
@@ -377,6 +507,8 @@ class _Orchestrator:
         """Save the in-flight recording window to disk."""
         if not self.recording or self.run_dir is None:
             return
+        # Slice + save radar sidecar window first (no-op if sidecar absent).
+        self._save_radar_window()
         # Flush any final GT entries before closing.
         self._drain_gt_to_csv()
         try:
@@ -500,6 +632,9 @@ class _Orchestrator:
             self._stop_recording()
         if self.preview_mode and not self._recordings_done:
             print("[run] session ended with no recordings saved")
+        # Stop the radar sidecar thread + send sensorStop. Idempotent.
+        if self._radar_sidecar is not None:
+            self._radar_sidecar.stop()
 
     def validation_polar_precheck(self, timeout_s: float) -> None:
         """Block until Polar GT entries are flowing into the viewer.
@@ -660,6 +795,18 @@ def _resolve_flag_implications(args) -> None:
         # ablation, require viewer for GT, and use a separate output tree.
         args.save_raw = True
         args.viewer = True
+    if args.record_radar:
+        # Sidecar owns the radar driver. Force Pipeline's --radar OFF so
+        # the two don't race for /dev/ttyUSB0+1. Recording is R-press
+        # driven, so viewer is required to fire the toggle.
+        if args.radar:
+            print("[run] --record-radar overrides --radar (sidecar owns "
+                  "the device); disabling pipeline ride-along.")
+            args.radar = False
+        if not args.viewer:
+            args.viewer = True
+            print("[run] --record-radar implies --viewer (R-press toggles "
+                  "both LiDAR + radar recording).")
 
 
 def main() -> None:

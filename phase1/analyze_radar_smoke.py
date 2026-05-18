@@ -8,7 +8,7 @@ else:
     NPZ = "/tmp/radar_smoke.npz"
 
 d = np.load(NPZ)
-ts = d["timestamps"]
+ts = d["timestamps_rel"] if "timestamps_rel" in d.files else d["timestamps"]
 frame_keys = sorted(k for k in d.files if k.startswith("f"))
 print(f"frames: {len(frame_keys)}; duration: {ts[-1]:.1f}s; "
       f"fps_effective: {len(frame_keys)/ts[-1]:.2f}")

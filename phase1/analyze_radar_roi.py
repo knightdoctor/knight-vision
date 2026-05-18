@@ -11,7 +11,7 @@ Y_LO, Y_HI = -0.3, 0.5
 Z_LO, Z_HI = 0.7, 1.8
 
 d = np.load(NPZ)
-ts = d["timestamps"]
+ts = d["timestamps_rel"] if "timestamps_rel" in d.files else d["timestamps"]
 keys = sorted(k for k in d.files if k.startswith("f"))
 
 filt_means  = []
