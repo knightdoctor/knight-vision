@@ -193,6 +193,15 @@ class Phase1Pipeline:
         self._measured_fps: Optional[float] = None
         last_result: Optional[Dict] = None
 
+        # Task #58 — sticky subject tracking. Keep the previous frame's
+        # subject centroid; the cluster selector prefers a cluster within
+        # ``subject_lock_radius_m`` of it over the largest-in-volume rule.
+        # ``_frames_without_subject`` counts consecutive blank frames;
+        # past ``subject_lock_timeout_frames`` we clear the lock so the
+        # next non-blank frame re-acquires (largest-in-volume).
+        prev_subject_centroid: Optional[np.ndarray] = None
+        frames_without_subject = 0
+
         print(f"\n── Live Monitoring ({duration_seconds:.0f}s, "
               f"{n_frames} frames @ {cfg_fps:.0f} fps configured) ──")
 
@@ -220,7 +229,10 @@ class Phase1Pipeline:
 
                 # ── Subject selection ─────────────────────────────────────
                 subject = select_subject_cluster(
-                    clusters, self.config.monitoring_volume
+                    clusters,
+                    self.config.monitoring_volume,
+                    prev_centroid=prev_subject_centroid,
+                    lock_radius_m=self.config.subject_lock_radius_m,
                 )
 
             # Append to uniform centroid-z series (NaN when no subject).
@@ -239,8 +251,14 @@ class Phase1Pipeline:
                 cz = float(analysis_pts[:, 2].mean())
                 subject_pts = subject.shape[0]   # report full subject count
                 self._frame_buffer.append(subject)
+                # Update the lock with whatever cluster we just settled on.
+                prev_subject_centroid = subject.mean(axis=0)
+                frames_without_subject = 0
             else:
                 cz = float("nan")
+                frames_without_subject += 1
+                if frames_without_subject >= self.config.subject_lock_timeout_frames:
+                    prev_subject_centroid = None
             self._centroid_z.append(cz)
 
             # Per-frame hook for orchestrator (logging / recording / viewer).
@@ -352,6 +370,10 @@ class Phase1Pipeline:
         self._rr_history   = []
         last_result: Optional[Dict] = None
 
+        # Mirror run_live's sticky-tracking state (task #58).
+        prev_subject_centroid: Optional[np.ndarray] = None
+        frames_without_subject = 0
+
         print(f"\n── Replay ({len(frames)} frames @ {fps:.0f} fps) ──")
 
         for i, frame in enumerate(frames):
@@ -359,16 +381,28 @@ class Phase1Pipeline:
 
             n_clusters = 0
             subject_pts = 0
+            subject = None
 
             if residuals.shape[0] >= self.config.cluster_min_points:
                 clusters = cluster_residuals(residuals, self.config)
                 n_clusters = len(clusters)
                 subject = select_subject_cluster(
-                    clusters, self.config.monitoring_volume
+                    clusters,
+                    self.config.monitoring_volume,
+                    prev_centroid=prev_subject_centroid,
+                    lock_radius_m=self.config.subject_lock_radius_m,
                 )
                 if subject is not None:
                     self._frame_buffer.append(subject)
                     subject_pts = subject.shape[0]
+
+            if subject is not None:
+                prev_subject_centroid = subject.mean(axis=0)
+                frames_without_subject = 0
+            else:
+                frames_without_subject += 1
+                if frames_without_subject >= self.config.subject_lock_timeout_frames:
+                    prev_subject_centroid = None
 
             if (i + 1) % compute_rr_every == 0 and len(self._frame_buffer) >= 20:
                 result = extract_rr(self._frame_buffer, fps, self.config)

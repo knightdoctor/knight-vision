@@ -111,11 +111,28 @@ def cluster_residuals(points: np.ndarray, config) -> List[Cluster]:
 def select_subject_cluster(
     clusters: List[Cluster],
     monitoring_volume_bbox: np.ndarray,
+    prev_centroid: Optional[np.ndarray] = None,
+    lock_radius_m: float = 0.30,
 ) -> Optional[np.ndarray]:
     """Select the most likely subject cluster from a list of clusters.
 
-    The subject cluster is defined as the **largest** cluster whose
-    centroid lies within the specified monitoring volume bounding box.
+    Two-mode selection (task #58 — temporal coherence):
+
+    1. **Locked mode** (``prev_centroid`` provided): pick the cluster
+       whose centroid is closest to ``prev_centroid`` *and* within
+       ``lock_radius_m``. Lock applies only to clusters whose centroid
+       is inside the monitoring volume. If no in-volume cluster is
+       within the lock radius, fall through to acquire mode.
+
+    2. **Acquire mode** (no prev_centroid, or lock fell through): pick
+       the **largest** cluster whose centroid is in the monitoring
+       volume. This is the original behaviour.
+
+    The split prevents per-frame flicker between the subject and a
+    similarly-sized background cluster (e.g. sofa, wall edge) — once
+    we've found the subject, we stick with whichever cluster is
+    spatially closest until we lose it for long enough that the
+    pipeline clears the lock.
 
     Parameters
     ----------
@@ -124,6 +141,14 @@ def select_subject_cluster(
     monitoring_volume_bbox : np.ndarray
         Shape (2, 3) — ``[[xmin, ymin, zmin], [xmax, ymax, zmax]]``
         in metres.
+    prev_centroid : np.ndarray, optional
+        Shape (3,) — last frame's subject centroid. When provided,
+        enables locked mode.
+    lock_radius_m : float
+        Maximum centroid jump per frame that still counts as the same
+        subject. 0.30 m at 5-10 fps = 1.5-3 m/s of permitted motion,
+        which comfortably covers sitting fidget and slow rotation
+        without bleeding into a background cluster ~1 m away.
 
     Returns
     -------
@@ -137,12 +162,25 @@ def select_subject_cluster(
     bbox_min = monitoring_volume_bbox[0]
     bbox_max = monitoring_volume_bbox[1]
 
-    for cluster in clusters:   # already sorted largest-first
-        c = cluster.centroid
-        if np.all(c >= bbox_min) and np.all(c <= bbox_max):
-            return cluster.points
+    in_volume = [
+        c for c in clusters
+        if np.all(c.centroid >= bbox_min) and np.all(c.centroid <= bbox_max)
+    ]
+    if not in_volume:
+        return None
 
-    return None
+    # Locked mode: prefer the cluster nearest the previous centroid,
+    # provided it sits within lock_radius_m.
+    if prev_centroid is not None:
+        prev = np.asarray(prev_centroid, dtype=float)
+        best = min(in_volume, key=lambda c: np.linalg.norm(c.centroid - prev))
+        if np.linalg.norm(best.centroid - prev) <= lock_radius_m:
+            return best.points
+        # Fall through to acquire mode if no candidate is within radius.
+
+    # Acquire mode: largest in-volume cluster (clusters are sorted
+    # largest-first by cluster_residuals).
+    return in_volume[0].points
 
 
 def select_chest_subset(

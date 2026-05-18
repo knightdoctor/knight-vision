@@ -71,6 +71,14 @@ class KVConfig:
     dbscan_min_samples: int = 5
     cluster_min_points: int = 10
 
+    # ── Subject tracking (task #58, 2026-05-18) ──────────────────────────────
+    # Once a subject cluster is found, prefer the cluster nearest the
+    # previous frame's centroid over the largest-in-volume rule. Without
+    # this, two similarly-sized clusters (subject vs. sofa edge) cause
+    # the ROI to flicker frame-to-frame.
+    subject_lock_radius_m: float = 0.30      # max per-frame centroid jump
+    subject_lock_timeout_frames: int = 10    # frames without subject → drop lock
+
     # ── Monitoring volume (metres) ───────────────────────────────────────────
     # 2026-05-17: tightened Z from (0.0, 2.5) → (0.5, 2.0) after sofa at 2-3m
     # was contaminating subject selection — cluster picker bounced between
