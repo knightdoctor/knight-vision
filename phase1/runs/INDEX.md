@@ -52,12 +52,13 @@ Earlier Polar runs used Jetson bleak daemon (stall issues, retracted).
 | `20260516_164903` | 16:49 | [diag] | first Mac Polar bridge + HF-centroid GT | Polar (Mac, HF-centroid) | 6.11 | 12-14 | ~7 | Polar GT now solid (matches Phil's stated ~15 BPM breathing). LiDAR pipeline STILL locked on 6 BPM artifact — exposed it as a real algorithm bug, not a GT problem. PR I (HF-centroid on LiDAR side) implemented. |
 | `20260516_165647` | 16:56 | **[M1]** | **first valid paired**, post PR I | Polar (Mac, HF-centroid) | **14.5** (last win) / 16.0 (settled) | **14.1** | **0.4 / 1.9** | Phil seated closer to sensor, normal breathing. First time LiDAR and Polar both report physiological RR in agreement. M1 #1. |
 | `20260516_170653` | 17:06 | **[M1]** | **Run 5: breath-hold protocol** | Polar (Mac) + manual phase markers | 14.6 (settled over recording) | 14.1 (steady-state pre + post) | 0.5 | 30s normal → 56s breath hold (manual rr=0 at start, rr=15 at end) → 30s normal. Apnoea detected by **two signatures**: LiDAR BPM destabilises UP to 22-24 (centroid drifts when respiratory peak vanishes) + Polar HR drops 77→64 (vagal bradycardia). ~20s detection lag → PR J. See `protocols/breath_hold_validation.md`. |
+| `20260518_213754` | 21:37 | **[M1]** | **post-PR-T/V/X**: chest band widened (0.30, 0.75), sticky tracking + size-dominance, side-elevation viz, panels tightened, monitoring volume Z=1.4m | Polar (Mac, HF-centroid, n=42) | **17.0** peak / 19.4 centroid (SNR 6.10) | **14.22** median (11.6-16.1) | **+2.8** peak / +5.2 centroid | 81s @ 9.2 fps, 100% valid frames, ptp chest displacement 28.6mm. First paired run with chest+abdomen band. Peak-pick is the headline agreement (within 2.8 BPM of Polar) — best within-subject match this session. Centroid bias persists. Full analysis in `notes/multimodal_2026-05-18.md` evening-session section. |
 
 ---
 
 ## Headline counts
 
-- **Valid M1 paired runs: 2** (Run 4 = `20260516_165647`, Run 5 = `20260516_170653`)
+- **Valid M1 paired runs: 3** (Run 4 = `20260516_165647`, Run 5 = `20260516_170653`, Run 6 = `20260518_213754`)
 - **Retracted: 5** (all due to fps mismatch or bad-bg)
 - **Diagnostic-only: 7** (informative but no GT)
 

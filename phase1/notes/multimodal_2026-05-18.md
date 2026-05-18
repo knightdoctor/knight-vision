@@ -337,3 +337,89 @@ and proper range-Doppler is the only path.
   within-subject reproducibility
 - Source third-modality GT (task #66) — even more important now,
   since LiDAR-vs-Polar variability is itself subject-dependent
+
+---
+
+## Evening session — paired run 20260518_213754 (post-PR-T/V/X)
+
+First paired capture run after this session's stack of changes — sticky
+tracking + size-dominance break (PR S/W), chest band widened to
+**(0.30, 0.75)** for chest + abdomen coverage (PR X, motivated by
+diaphragmatic breathing in infants — clinical target), chest X/Z
+lateral crop (PR T), LiDAR side-elevation panel for visual QA (PR V),
+display ranges tightened to Z=(0.5, 2.0) / X=(-1.0, 1.0). Shape gate
+(PR Y) disabled — over-rejected human clusters when DBSCAN chained the
+subject to chair/desk past the 1.0 m XZ envelope; relaxed to 1.5 m
+fixed the math but not the symptom on Phil's living-room geometry.
+Monitoring volume Z tightened to 1.4 m (temp mitigation against the
+~1.5 m wall residual phantom that kept winning sticky-acquire).
+
+**Capture geometry:** Phil seated at z ≈ 0.94 m (cz median 936.5 mm,
+peak-to-peak chest displacement 28.6 mm). 81 s recording, 9.2 fps,
+749 samples, **100 % valid frames** (no dropouts, no lock losses
+across the recording window).
+
+**Polar GT (n=42):** RR median **14.22 BPM**, range 11.6–16.1.
+
+**LiDAR within 10–30 BPM band:**
+
+| Method | RR | Δ vs Polar |
+|---|---|---|
+| Peak-pick (FFT bin, SNR 6.10) | **17.0 BPM** | **+2.8 BPM** |
+| Power-weighted centroid (PR I — what the live pipeline reports) | 19.4 BPM | +5.2 BPM |
+
+Peak cluster very tight: 16.9, 17.0, 17.1, 17.3 BPM in the top four
+bins — consistent dominant peak, not a noisy spread. SNR 6.10 puts
+this firmly in HIGH-confidence territory by the per-window thresholds
+(snr_high=5.0).
+
+**Observations:**
+
+1. **Peak-pick agrees with Polar to within 2.8 BPM**, the best
+   within-subject agreement seen this entire session and meaningfully
+   better than today's earlier paired runs. Widening the chest band
+   to chest+abdomen has not hurt the agreement; the higher point
+   count appears to have lifted SNR.
+2. **PR I centroid drifts ~2.4 BPM above peak-pick** for this signal —
+   a recurring pattern: when the breathing peak is broad or has a
+   high-frequency tail (cardiac harmonics, sway), the centroid pulls
+   right of the peak. Worth re-opening the peak-vs-centroid choice
+   as a runtime config option (gated on apnoea spec, because the
+   trade-off changes once we notch-filter cardiac).
+3. **Chest peak-to-peak displacement 28.6 mm** is consistent with
+   normal adult breathing amplitude — sanity-check on the upstream
+   clustering + chest-band selection.
+4. **First paired run after chest band widening to (0.30, 0.75).**
+   Doesn't appear to have hurt adult agreement. Infant abdominal
+   breathing test still pending (close-range capture, task #69).
+
+**Operational notes from this session:**
+
+- Sticky-acquire repeatedly latched onto a ~5000-pt persistent residual
+  cluster at z ≈ 1.5–1.9 m before Phil's cluster settled. Root cause is
+  background residuals from sensor pose / thermal drift not perfectly
+  matching the BG capture — a fresh BG capture each session
+  substantially shrinks the phantom mass. Size-dominance ratio of 2×
+  was not sufficient at the times we saw it because Phil's cluster
+  built up to dominance only after he was fully seated. Manual fix on
+  this run: tightened monitoring volume Z to 1.4 m to mechanically
+  exclude the wall.
+- Shape gate (PR Y) too aggressive on a chained adult-on-chair cluster
+  (X span ~1.08 m, Z span ~1.15 m — both above the original 1.0 m
+  envelope). Relaxed to 1.5 m didn't restore acquisition in practice
+  (separate diagnostic issue, possibly Python bytecode cache or
+  runtime config staleness — needs offline reproduction). Shape gate
+  currently disabled by default in config; re-enable once the offline
+  repro pins down why it was rejecting human clusters.
+- Polar BLE pairing died silently mid-session (no log line, just
+  stopped receiving notifications). Required "Forget device" in macOS
+  Bluetooth + bridge restart for a clean reconnect. Worth filing as a
+  bridge robustness task — daemon should auto-detect a stale pairing
+  cache and force re-pair without manual OS intervention.
+- Viewer rec button visual stuck (`.rec.on` CSS toggle not firing) but
+  the underlying record state machine works correctly — recording fired,
+  artifacts saved, radar sidecar saved 786 frames. CSS-only fix.
+- New visual-QA workflow in effect: I pull topdown + side JPEGs from
+  the viewer stream myself after each relaunch and read them directly,
+  rather than asking Phil to narrate the panel. Significantly tighter
+  iteration loop.
