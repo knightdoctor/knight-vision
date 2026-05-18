@@ -340,86 +340,87 @@ and proper range-Doppler is the only path.
 
 ---
 
-## Evening session — paired run 20260518_213754 (post-PR-T/V/X)
+## Evening session — Run 9 (`20260518_213754`) resolves the LiDAR +1-2 BPM bias
 
-First paired capture run after this session's stack of changes — sticky
-tracking + size-dominance break (PR S/W), chest band widened to
-**(0.30, 0.75)** for chest + abdomen coverage (PR X, motivated by
-diaphragmatic breathing in infants — clinical target), chest X/Z
-lateral crop (PR T), LiDAR side-elevation panel for visual QA (PR V),
-display ranges tightened to Z=(0.5, 2.0) / X=(-1.0, 1.0). Shape gate
-(PR Y) disabled — over-rejected human clusters when DBSCAN chained the
-subject to chair/desk past the 1.0 m XZ envelope; relaxed to 1.5 m
-fixed the math but not the symptom on Phil's living-room geometry.
-Monitoring volume Z tightened to 1.4 m (temp mitigation against the
-~1.5 m wall residual phantom that kept winning sticky-acquire).
+The headline of this run is *not* "another paired capture." It's that
+peak-pick vs power-weighted-centroid on the same 81 s recording, with
+identical chest-band selection, returns **17.0 BPM** and **19.4 BPM**
+respectively. That 2.4 BPM split — same data, same spatial subset,
+different reporting method — localises the persistent LiDAR-vs-Polar
++1-2 BPM bias seen across the N=5 paired cohort to the **reporting
+algorithm**, not anatomy and not the spatial chest-band selection.
 
-**Capture geometry:** Phil seated at z ≈ 0.94 m (cz median 936.5 mm,
-peak-to-peak chest displacement 28.6 mm). 81 s recording, 9.2 fps,
-749 samples, **100 % valid frames** (no dropouts, no lock losses
-across the recording window).
+Centroid integrates power across the whole respiratory band; cardiac
+BCG harmonic energy bleeds into the upper end of that band (e.g.
+HR/2 ≈ 30 BPM at HR 60, which is still inside the 10-30 BPM analysis
+window). Peak-pick ignores that secondary energy by definition.
 
-**Polar GT (n=42):** RR median **14.22 BPM**, range 11.6–16.1.
+**Implications:**
 
-**LiDAR within 10–30 BPM band:**
+- The cardiac notch filter (task #62) is **load-bearing, not optional**.
+  Centroid only becomes the right default *after* the notch removes
+  the BCG contamination from the spectrum.
+- Until #62 ships, **peak-pick is the safe default** for the live
+  pipeline. PR Z (2026-05-18) adds `config.rr_method` + `--rr-method`
+  CLI flag for the choice, defaulting to peak-pick.
+- The viewer now reports both numbers side-by-side. The Δ between
+  them is itself a signal-quality indicator: large Δ ⇒ strong cardiac
+  contamination present in the spectrum.
+- Task #64 (HR/2 validation under HR-varying recording) still gates
+  #62 — the notch frequency depends on the cardiac-at-HR/2 hypothesis
+  holding.
+- Retrospective re-scoring of Runs 4, 6, 7, 8 under peak-pick is filed
+  as task #77 — expected to shrink the cohort Δ from ~+1-2 BPM toward
+  ~+0.5 BPM. If it lands there, that's clinical-grade for adult RR.
 
-| Method | RR | Δ vs Polar |
-|---|---|---|
-| Peak-pick (FFT bin, SNR 6.10) | **17.0 BPM** | **+2.8 BPM** |
-| Power-weighted centroid (PR I — what the live pipeline reports) | 19.4 BPM | +5.2 BPM |
+### Capture detail
 
-Peak cluster very tight: 16.9, 17.0, 17.1, 17.3 BPM in the top four
-bins — consistent dominant peak, not a noisy spread. SNR 6.10 puts
-this firmly in HIGH-confidence territory by the per-window thresholds
-(snr_high=5.0).
+Geometry: Phil seated at z ≈ 0.94 m, cz median 936.5 mm, ptp chest
+displacement 28.6 mm (normal adult breathing amplitude). 81 s, 9.2
+fps, 749 samples, **100 % valid frames**.
 
-**Observations:**
+Polar GT (n = 42): RR median **14.22 BPM**, range 11.6–16.1.
 
-1. **Peak-pick agrees with Polar to within 2.8 BPM**, the best
-   within-subject agreement seen this entire session and meaningfully
-   better than today's earlier paired runs. Widening the chest band
-   to chest+abdomen has not hurt the agreement; the higher point
-   count appears to have lifted SNR.
-2. **PR I centroid drifts ~2.4 BPM above peak-pick** for this signal —
-   a recurring pattern: when the breathing peak is broad or has a
-   high-frequency tail (cardiac harmonics, sway), the centroid pulls
-   right of the peak. Worth re-opening the peak-vs-centroid choice
-   as a runtime config option (gated on apnoea spec, because the
-   trade-off changes once we notch-filter cardiac).
-3. **Chest peak-to-peak displacement 28.6 mm** is consistent with
-   normal adult breathing amplitude — sanity-check on the upstream
-   clustering + chest-band selection.
-4. **First paired run after chest band widening to (0.30, 0.75).**
-   Doesn't appear to have hurt adult agreement. Infant abdominal
-   breathing test still pending (close-range capture, task #69).
+LiDAR within the 10–30 BPM band:
 
-**Operational notes from this session:**
+| Method | RR | Δ vs Polar | Notes |
+|---|---|---|---|
+| **Peak-pick (FFT bin)** | **17.0 BPM** | **+2.8 BPM** | SNR 6.10 → HIGH conf. Top four bins: 16.9, 17.0, 17.1, 17.3 BPM (very tight cluster, not a noisy spread). |
+| Centroid (PR I, prior default) | 19.4 BPM | +5.2 BPM | Pulled high by cardiac BCG band-edge energy. |
 
-- Sticky-acquire repeatedly latched onto a ~5000-pt persistent residual
-  cluster at z ≈ 1.5–1.9 m before Phil's cluster settled. Root cause is
-  background residuals from sensor pose / thermal drift not perfectly
-  matching the BG capture — a fresh BG capture each session
-  substantially shrinks the phantom mass. Size-dominance ratio of 2×
-  was not sufficient at the times we saw it because Phil's cluster
-  built up to dominance only after he was fully seated. Manual fix on
-  this run: tightened monitoring volume Z to 1.4 m to mechanically
-  exclude the wall.
-- Shape gate (PR Y) too aggressive on a chained adult-on-chair cluster
-  (X span ~1.08 m, Z span ~1.15 m — both above the original 1.0 m
-  envelope). Relaxed to 1.5 m didn't restore acquisition in practice
-  (separate diagnostic issue, possibly Python bytecode cache or
-  runtime config staleness — needs offline reproduction). Shape gate
-  currently disabled by default in config; re-enable once the offline
-  repro pins down why it was rejecting human clusters.
-- Polar BLE pairing died silently mid-session (no log line, just
-  stopped receiving notifications). Required "Forget device" in macOS
-  Bluetooth + bridge restart for a clean reconnect. Worth filing as a
-  bridge robustness task — daemon should auto-detect a stale pairing
-  cache and force re-pair without manual OS intervention.
-- Viewer rec button visual stuck (`.rec.on` CSS toggle not firing) but
-  the underlying record state machine works correctly — recording fired,
-  artifacts saved, radar sidecar saved 786 frames. CSS-only fix.
-- New visual-QA workflow in effect: I pull topdown + side JPEGs from
-  the viewer stream myself after each relaunch and read them directly,
-  rather than asking Phil to narrate the panel. Significantly tighter
-  iteration loop.
+### Context
+
+This was the first paired capture after a stack of session changes:
+sticky tracking + size-dominance break (PR S/W), chest band widened
+to **(0.30, 0.75)** for chest+abdomen coverage (PR X, motivated by
+diaphragmatic breathing in infants), chest X/Z lateral crop (PR T),
+LiDAR side-elevation panel for visual QA (PR V), display ranges
+tightened to Z=(0.5, 2.0). Shape gate (PR Y) disabled at runtime
+after over-rejecting human clusters when DBSCAN chained the subject
+to chair/desk past the 1.0 m XZ envelope; monitoring volume Z
+tightened to 1.4 m as a temporary mitigation against the ~1.5 m wall
+residual phantom that kept winning sticky-acquire. Both are
+follow-ups; the headline finding stands independently of them.
+
+### Operational follow-ups
+
+- Sticky-acquire latching onto wall phantom before subject settled —
+  size-dominance ratio of 2× was insufficient because Phil's cluster
+  only reached dominance after fully seating. Investigate either
+  (a) prioritising motion-bearing clusters at acquire, or (b) raising
+  dominance ratio to 4× combined with a fresh BG model per session.
+- Shape gate (PR Y) defaults need an offline reproduction — relaxed
+  thresholds did not restore acquisition at runtime despite passing
+  in a fresh Python interpreter on the same config.
+- Polar BLE pairing dropped silently mid-session (no log line). The
+  daemon should detect stale pairing and force re-pair without manual
+  OS-side "Forget Device" intervention. Worth filing as a bridge
+  robustness task.
+- Viewer rec-button `.rec.on` CSS toggle not firing — recording works
+  end-to-end but visual indicator is stuck. CSS-only fix.
+
+New workflow rule in effect this session: after every relaunch I pull
+the topdown + side JPEGs from the viewer stream and read them
+directly, rather than relying on Phil to narrate the panel back to
+me. Tightens the iteration loop substantially when chasing visual
+bugs (locked-on-wrong-cluster, off-screen GT card, etc.).

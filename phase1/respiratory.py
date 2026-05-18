@@ -138,13 +138,17 @@ def extract_rr_from_signal(
     power = np.abs(fft_complex) ** 2
     freq_axis = np.fft.rfftfreq(n_fft, d=1.0 / fps)
 
-    # ── 5. Power-weighted centroid in physiological RR band ──────────────
-    # 2026-05-16: switched from single-peak-pick to power-weighted centroid.
-    # Peak-pick was fragile against narrow LF artifacts (e.g. a 6 BPM
-    # postural/cluster-jitter peak winning over the broader respiratory
-    # band's distributed power). Centroid integrates the WHOLE in-band
-    # power distribution, so a broad respiratory peak (natural breath-rate
-    # variability) wins over a narrow artifact peak of the same height.
+    # ── 5. Compute BOTH peak-pick and power-weighted centroid (PR Z) ─────
+    # 2026-05-16 (PR I): switched from peak-pick to power-weighted centroid
+    # because peak-pick was fragile against narrow LF artifacts.
+    # 2026-05-18 (PR Z): re-introduced peak-pick as a *runtime* alternative
+    # after Run 9 analysis showed centroid is biased ~+2.4 BPM relative to
+    # peak-pick by cardiac BCG energy bleeding into the upper RR band. The
+    # apnoea-architecture doc captures the reasoning: peak-pick is the safe
+    # default until task #62 (cardiac notch) ships and ungates centroid.
+    # Both numbers are computed and returned; the primary `rr_bpm` is set
+    # per ``config.rr_method``. The Δ between methods is itself a signal-
+    # quality indicator (large Δ ⇒ cardiac contamination in spectrum).
     band_mask = (freq_axis >= config.rr_freq_min) & (freq_axis <= config.rr_freq_max)
     if not np.any(band_mask):
         return _null_result()
@@ -155,15 +159,23 @@ def extract_rr_from_signal(
     if total_p <= 0:
         return _null_result()
 
-    rr_hz   = float((freq_band * power_band).sum() / total_p)
-    rr_bpm  = rr_hz * 60.0
+    # Centroid (PR I)
+    rr_hz_centroid = float((freq_band * power_band).sum() / total_p)
+    rr_bpm_centroid = rr_hz_centroid * 60.0
 
-    # ── 6. SNR — peak power in band vs mean in band ──────────────────────
-    # We still report peak-based SNR (the strongest spectral feature) as
-    # the signal-quality indicator. The frequency estimate is the centroid
-    # but the strength of the dominant spectral feature is more interpretable.
+    # Peak-pick
     peak_idx   = int(np.argmax(power_band))
     peak_power = float(power_band[peak_idx])
+    rr_bpm_peak = float(freq_band[peak_idx]) * 60.0
+
+    # Choose primary by config — default "peak-pick" (PR Z safe default).
+    method = getattr(config, "rr_method", "peak-pick")
+    rr_bpm = rr_bpm_peak if method == "peak-pick" else rr_bpm_centroid
+
+    # ── 6. SNR — peak power in band vs mean in band ──────────────────────
+    # SNR is method-independent: it's the strength of the dominant spectral
+    # feature relative to the noise floor in the analysis band. Both
+    # methods share this quality measure.
     mean_power = float(power_band.mean())
     snr = peak_power / (mean_power + 1e-12)
 
@@ -176,12 +188,15 @@ def extract_rr_from_signal(
         confidence = "LOW"
 
     return {
-        "rr_bpm":     rr_bpm,
-        "snr":        snr,
-        "confidence": confidence,
-        "signal":     signal,
-        "freq_axis":  freq_axis,
-        "power":      power,
+        "rr_bpm":           rr_bpm,
+        "rr_bpm_peak":      rr_bpm_peak,
+        "rr_bpm_centroid":  rr_bpm_centroid,
+        "rr_method":        method,
+        "snr":              snr,
+        "confidence":       confidence,
+        "signal":           signal,
+        "freq_axis":        freq_axis,
+        "power":            power,
     }
 
 

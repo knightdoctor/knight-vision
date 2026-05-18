@@ -32,8 +32,10 @@ from flask import Flask, Response, jsonify, render_template_string, request
 # ── Tunables ────────────────────────────────────────────────────────────
 RENDER_FPS = 10                     # render loop target rate
 CZ_HISTORY_MAX = 1800               # 60 s × 30 fps headroom
-TOPDOWN_X_LIMITS = (-1.5, 1.5)      # metres
-TOPDOWN_Z_LIMITS = (0.5, 3.5)       # metres — typical subject range, kills empty zones
+TOPDOWN_X_LIMITS = (-1.0, 1.0)      # metres
+TOPDOWN_Z_LIMITS = (0.5, 2.0)       # metres — tightened 2026-05-18 (was 0.5-3.5).
+                                    # Subject sits ~1 m; >2 m is wall and ate ~60% of
+                                    # screen real estate without informing the operator.
 PANEL_W = 600                       # top-down panel width  (px)
 PANEL_H = 360                       # top-down panel height (px) — tightened
 WAVEFORM_W = 520                    # respiratory waveform render width
@@ -62,9 +64,12 @@ _state = {
     "n_clusters": 0,
     "cz_history": [],
     "started_at": None,
-    "rr_bpm":     None,
-    "rr_snr":     None,
-    "rr_conf":    None,
+    "rr_bpm":            None,   # primary, per config.rr_method
+    "rr_bpm_peak":       None,   # peak-pick (always computed)
+    "rr_bpm_centroid":   None,   # power-weighted centroid (always computed)
+    "rr_method":         None,   # "peak-pick" | "centroid" — which drives rr_bpm
+    "rr_snr":            None,
+    "rr_conf":           None,
     "rr_n":       0,
     "frame_ts":   [],   # recent set_frame wall times for live fps calc
     # Radar sidecar state (PR Q 2026-05-18 viewer integration)
@@ -111,7 +116,10 @@ RADAR_FOV_EL_DEG = 60.0   # ±60° elevation (Y-Z plane half-angle)
 RADAR_SIDE_PANEL_H = 220  # px — shorter panel for side elevation view
 RADAR_SIDE_Y_LIMITS = (-0.8, 1.0)   # metres (down → up)
 LIDAR_SIDE_PANEL_H = 240  # px — LiDAR side elevation panel
-LIDAR_SIDE_Y_LIMITS = (-0.3, 1.6)   # metres (knees-ish → above head, seated subject)
+LIDAR_SIDE_Y_LIMITS = (-0.5, 0.8)   # metres (seated subject: torso + head)
+                                    # Tightened 2026-05-18 (was -0.3 to +1.6); top
+                                    # half was empty ceiling. Knee-level included to
+                                    # give visual cue when subject stands.
 
 # Control state (browser → pipeline). Pipeline polls these each frame.
 _control = {
@@ -160,13 +168,26 @@ def set_frame(frame_no: int, residuals: np.ndarray, subject,
             ts.pop(0)
 
 
-def set_rr(rr_bpm: float, snr: float, confidence: str) -> None:
-    """Push the latest RR estimate (called once per FFT window)."""
+def set_rr(rr_bpm: float, snr: float, confidence: str,
+           rr_bpm_peak: Optional[float] = None,
+           rr_bpm_centroid: Optional[float] = None,
+           rr_method: Optional[str] = None) -> None:
+    """Push the latest RR estimate (called once per FFT window).
+
+    ``rr_bpm`` is the primary value (whichever method config.rr_method
+    selects). ``rr_bpm_peak`` and ``rr_bpm_centroid`` are always
+    populated when computed; the Δ between them is a signal-quality
+    indicator (large Δ ⇒ cardiac contamination in the analysis band)."""
     with _LOCK:
-        _state["rr_bpm"]  = float(rr_bpm)
-        _state["rr_snr"]  = float(snr)
-        _state["rr_conf"] = str(confidence)
-        _state["rr_n"]   += 1
+        _state["rr_bpm"]           = float(rr_bpm)
+        _state["rr_bpm_peak"]      = (float(rr_bpm_peak)
+                                      if rr_bpm_peak is not None else None)
+        _state["rr_bpm_centroid"]  = (float(rr_bpm_centroid)
+                                      if rr_bpm_centroid is not None else None)
+        _state["rr_method"]        = rr_method
+        _state["rr_snr"]           = float(snr)
+        _state["rr_conf"]          = str(confidence)
+        _state["rr_n"]            += 1
 
 
 def reset() -> None:
@@ -848,7 +869,8 @@ PAGE = """<!doctype html>
   .topdown-panel{background:#161616;border-radius:6px;padding:6px;
                  align-self:stretch;display:flex;flex-direction:column}
   .topdown-panel img{width:100%;height:auto;border-radius:4px;max-height:100%}
-  .right-stack{display:flex;flex-direction:column;gap:8px}
+  .right-stack{display:flex;flex-direction:column;gap:8px;
+               max-height:calc(100vh - 80px);overflow-y:auto}
   .wave-panel{background:#161616;border-radius:6px;padding:6px}
   .wave-panel img{width:100%;height:auto;border-radius:4px}
   .metrics{background:#161616;border-radius:6px;padding:6px 12px;font-family:monospace}
@@ -902,6 +924,9 @@ PAGE = """<!doctype html>
       <span id="conf" class="conf-NONE">awaiting</span>
       &nbsp;·&nbsp; SNR <span id="snr">—</span>
       &nbsp;·&nbsp; n=<span id="rrn">0</span>
+      &nbsp;·&nbsp; method=<span id="rr_method">—</span>
+      &nbsp;·&nbsp; peak <span id="rr_peak">—</span> / centroid <span id="rr_centroid">—</span>
+      &nbsp;·&nbsp; Δp-c <span id="rr_split">—</span>
     </span>
     <span id="recbadge" class="recbadge off">● REC</span>
     <div class="ctrls">
@@ -944,6 +969,32 @@ PAGE = """<!doctype html>
           </span>
         </div>
       </div>
+      <div class="gt-thumb">
+        <div class="lbl">Ground truth (Polar / manual) · radar cross-check</div>
+        <div class="vals">
+          <div class="pair">
+            <div class="k">HR (Polar)</div>
+            <div class="v" id="gt_hr">—</div>
+            <div class="src" id="gt_hr_src">&nbsp;</div>
+          </div>
+          <div class="pair">
+            <div class="k">RR (Polar)</div>
+            <div class="v" id="gt_rr">—</div>
+            <div class="src" id="gt_rr_src">&nbsp;</div>
+          </div>
+          <div class="pair">
+            <div class="k">RR (Radar)</div>
+            <div class="v" id="radar_rr" style="color:#f6b">—</div>
+            <div class="src" id="radar_rr_src">&nbsp;</div>
+          </div>
+        </div>
+        <div class="delta">Δ LiDAR−Polar: <b id="gt_delta_v">—</b> &nbsp;·&nbsp; Δ LiDAR−Radar: <b id="radar_delta_v">—</b></div>
+        <form class="gt-form" onsubmit="submitGT(event)">
+          HR <input type="number" id="gt_hr_in" min="20" max="220" step="1">
+          RR <input type="number" id="gt_rr_in" min="0" max="60" step="0.1">
+          <button type="submit">Log</button>
+        </form>
+      </div>
       <div id="lidar_side_card" class="thumb" style="padding:6px">
         <div class="lbl">LiDAR · side elevation (Y/Z) — chest band on torso?</div>
         <img id="lidar_side_feed" src="/lidar_side_stream"
@@ -970,32 +1021,6 @@ PAGE = """<!doctype html>
           <img id="rgb_feed" style="display:none">
           <div class="placeholder">disabled · --rgb</div>
         </div>
-      </div>
-      <div class="gt-thumb">
-        <div class="lbl">Ground truth (Polar / manual) · radar cross-check</div>
-        <div class="vals">
-          <div class="pair">
-            <div class="k">HR (Polar)</div>
-            <div class="v" id="gt_hr">—</div>
-            <div class="src" id="gt_hr_src">&nbsp;</div>
-          </div>
-          <div class="pair">
-            <div class="k">RR (Polar)</div>
-            <div class="v" id="gt_rr">—</div>
-            <div class="src" id="gt_rr_src">&nbsp;</div>
-          </div>
-          <div class="pair">
-            <div class="k">RR (Radar)</div>
-            <div class="v" id="radar_rr" style="color:#f6b">—</div>
-            <div class="src" id="radar_rr_src">&nbsp;</div>
-          </div>
-        </div>
-        <div class="delta">Δ LiDAR−Polar: <b id="gt_delta_v">—</b> &nbsp;·&nbsp; Δ LiDAR−Radar: <b id="radar_delta_v">—</b></div>
-        <form class="gt-form" onsubmit="submitGT(event)">
-          HR <input type="number" id="gt_hr_in" min="20" max="220" step="1">
-          RR <input type="number" id="gt_rr_in" min="0" max="60" step="0.1">
-          <button type="submit">Log</button>
-        </form>
       </div>
     </aside>
   </main>
@@ -1043,6 +1068,24 @@ async function refresh(){
       const conf = document.getElementById('conf');
       conf.textContent = j.rr_conf;
       conf.className = 'conf-' + j.rr_conf;
+      // PR Z — dual-method readout (peak vs centroid, Δ as signal-quality)
+      document.getElementById('rr_method').textContent = j.rr_method || '—';
+      document.getElementById('rr_peak').textContent =
+        (j.rr_bpm_peak === null || j.rr_bpm_peak === undefined)
+          ? '—' : j.rr_bpm_peak.toFixed(1);
+      document.getElementById('rr_centroid').textContent =
+        (j.rr_bpm_centroid === null || j.rr_bpm_centroid === undefined)
+          ? '—' : j.rr_bpm_centroid.toFixed(1);
+      const split = document.getElementById('rr_split');
+      if (j.rr_bpm_peak !== null && j.rr_bpm_peak !== undefined
+          && j.rr_bpm_centroid !== null && j.rr_bpm_centroid !== undefined) {
+        const d = Math.abs(j.rr_bpm_centroid - j.rr_bpm_peak);
+        split.textContent = d.toFixed(1) + ' BPM';
+        // Δ colour: green <1, yellow 1-2, red >2 (cardiac contamination warning)
+        split.style.color = d < 1.0 ? '#2d7'
+                          : d < 2.0 ? '#fa3'
+                          : '#f55';
+      } else { split.textContent = '—'; split.style.color = '#777'; }
     } else if (noSignal) {
       document.getElementById('bpm').textContent = '—';
       document.getElementById('bpm').className = 'big conf-NONE';
@@ -1172,6 +1215,9 @@ def state():
             "cz": last_cz,
             "cz_history_len": len(cz_hist),
             "rr_bpm": _state["rr_bpm"],
+            "rr_bpm_peak":     _state["rr_bpm_peak"],
+            "rr_bpm_centroid": _state["rr_bpm_centroid"],
+            "rr_method":       _state["rr_method"],
             "rr_snr": _state["rr_snr"],
             "rr_conf": _state["rr_conf"],
             "rr_n": _state["rr_n"],

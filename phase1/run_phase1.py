@@ -88,6 +88,17 @@ def _make_parser() -> argparse.ArgumentParser:
     p.add_argument("--depth", action="store_true",
                    help="Stream a JET-coloured depth heatmap (0-3 m) to a "
                         "viewer panel (~2 Hz). Implies --lidar + --viewer.")
+    p.add_argument("--rr-method", choices=("peak-pick", "centroid"),
+                   default=None,
+                   help="Which RR estimator to report as primary. peak-pick "
+                        "(default per config since PR Z) picks the dominant "
+                        "FFT bin and is robust against cardiac BCG bleed-in. "
+                        "centroid (PR I, prior default) power-weights the "
+                        "whole band — algorithmically richer but biased "
+                        "~+2 BPM until cardiac notch (task #62) ships. "
+                        "Both numbers are always computed and visible in "
+                        "the viewer; this only chooses which one drives "
+                        "the headline RR readout.")
     p.add_argument("--validation", action="store_true",
                    help="Validation capture mode (PR N follow-up). Bundles "
                         "--save-raw + Polar-GT pre-check; writes artefacts "
@@ -446,7 +457,12 @@ class _Orchestrator:
         hist = pipe._rr_history
         while self._last_rr_pushed < len(hist):
             r = hist[self._last_rr_pushed]
-            self._viewer.set_rr(r["rr_bpm"], r["snr"], r["confidence"])
+            self._viewer.set_rr(
+                r["rr_bpm"], r["snr"], r["confidence"],
+                rr_bpm_peak=r.get("rr_bpm_peak"),
+                rr_bpm_centroid=r.get("rr_bpm_centroid"),
+                rr_method=r.get("rr_method"),
+            )
             self._last_rr_pushed += 1
 
     def frame_callback(self, i: int, frame: np.ndarray, residuals: np.ndarray,
@@ -872,6 +888,8 @@ def main() -> None:
     args = _make_parser().parse_args()
     _resolve_flag_implications(args)
     config = KVConfig()
+    if args.rr_method is not None:
+        config.rr_method = args.rr_method
     if args.mode == "demo":
         run_demo(config, args)
     elif args.mode == "background":

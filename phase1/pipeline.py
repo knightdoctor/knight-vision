@@ -50,7 +50,11 @@ from typing import Dict, List, Optional, Union
 import numpy as np
 
 from phase1.background import BackgroundModel
-from phase1.clustering import cluster_residuals, select_subject_cluster, select_chest_subset
+from phase1.clustering import (
+    cluster_residuals,
+    select_subject_cluster,
+    select_chest_subset,
+)
 from phase1.config import KVConfig
 from phase1.drivers.camera_driver import CameraDriver
 from phase1.drivers.lidar_driver import LidarDriver

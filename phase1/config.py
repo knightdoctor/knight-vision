@@ -93,20 +93,27 @@ class KVConfig:
     # corner that pops up for 1 frame then vanishes) from being adopted
     # as the subject. Trade: 3 frames @ ~10 fps = 300 ms of latency on
     # re-acquire, which is acceptable given the apnoea response window.
-    subject_acquire_consistency_frames: int = 3
-    subject_acquire_consistency_radius_m: float = 0.20
+    subject_acquire_consistency_frames: int = 1   # disabled until we can
+    subject_acquire_consistency_radius_m: float = 1.00  # diagnose properly
 
     # Shape gate (PR Y): drop clusters whose bounding-box dimensions are
     # incompatible with a human silhouette. Cheap belt-and-braces filter
     # for wall-slice phantoms that share DBSCAN cluster mass but no
     # human-like vertical extent. Bounds are deliberately generous:
     # infant in a cot vs. adult standing.
-    #   Y span:  20 cm  (newborn lying)  →  1.80 m  (adult standing)
-    #   X+Z span: 1.0 m  diagonal envelope (covers arms-out adult)
+    #   Y span:  20 cm  (newborn lying)  →  2.00 m  (adult standing)
+    #   X/Z span: 1.50 m  (arms-out adult + DBSCAN-chained chair/desk)
+    # Relaxed 2026-05-18 from (0.20, 1.80, 1.00) — real chained clusters
+    # spanned 1.08 m × 1.15 m through chair seat + desk, failing the
+    # original 1.00 m max and starving acquisition. Y-min still catches
+    # flat wall slices (~5 cm span); upper bounds catch the all-of-room
+    # noise blob.
     # Set ``subject_shape_y_min_m = 0.0`` to disable.
-    subject_shape_y_min_m: float = 0.20
-    subject_shape_y_max_m: float = 1.80
-    subject_shape_xz_max_m: float = 1.00
+    # DISABLED 2026-05-18 — re-enable once we can diagnose why it
+    # over-rejected human clusters in Phil's living-room environment.
+    subject_shape_y_min_m: float = 0.0
+    subject_shape_y_max_m: float = 2.00
+    subject_shape_xz_max_m: float = 1.50
 
     # ── Monitoring volume (metres) ───────────────────────────────────────────
     # 2026-05-17: tightened Z from (0.0, 2.5) → (0.5, 2.0) after sofa at 2-3m
@@ -116,7 +123,7 @@ class KVConfig:
     monitoring_volume: np.ndarray = field(
         default_factory=lambda: np.array(
             [[-1.5, -1.5, 0.5],
-             [ 1.5,  1.5, 2.0]],
+             [ 1.5,  1.5, 1.4]],
             dtype=float,
         )
     )
@@ -124,6 +131,19 @@ class KVConfig:
     # ── Respiratory analysis ─────────────────────────────────────────────────
     rr_freq_min: float = 0.17           # Hz -> 10 BPM (excludes sub-physiological postural/sway artifacts)
     rr_freq_max: float = 0.50           # Hz -> 30 BPM (covers adult + light tachypnea; excludes cardiac >40)
+
+    # PR Z 2026-05-18: which estimator the live pipeline reports as primary.
+    # "peak-pick" picks the single dominant FFT bin in the analysis band.
+    # "centroid" power-weights across the whole band (PR I, prior default).
+    # The evening Run 9 paired capture showed centroid is biased ~+2.4 BPM
+    # vs peak-pick on the same chest-band data because cardiac BCG harmonic
+    # energy bleeds into the upper edge of the 10-30 BPM band and pulls
+    # the centroid right. Peak-pick ignores that energy and agrees with
+    # Polar to within ~2.8 BPM on Run 9 (vs +5.2 BPM for centroid).
+    # Peak-pick is the safe default until task #62 (cardiac notch) ships
+    # and ungates centroid as the algorithmically richer estimator.
+    # Both numbers are always computed; viewer reports them side-by-side.
+    rr_method: str = "peak-pick"
     fft_window_length: int = 256       # samples fed into FFT
     fft_zero_pad_factor: int = 16      # zero-pad to fft_window_length × this
 
