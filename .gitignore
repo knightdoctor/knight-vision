@@ -13,6 +13,10 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Local Mac-side analysis venv (task #80, EMD-signal) — Jetson uses
+# ~/knightvision-hub/.venv/ as its real env via phase1/run.sh
+.venv-local/
+
 # Editor / OS
 .DS_Store
 *.swp

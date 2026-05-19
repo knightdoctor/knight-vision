@@ -1,0 +1,692 @@
+[
+  {
+    "run": "20260517_063204",
+    "wall_seconds": 114.72,
+    "frames_seen": 841,
+    "fps_corrected": 7.331,
+    "polar_rr_median": 12.53,
+    "polar_hr_median": 78.5,
+    "polar_rr_n": 26,
+    "eemd": {
+      "trials": 50,
+      "noise_width": 0.05,
+      "max_imf": 8,
+      "n_imfs": 9,
+      "seconds": 0.92
+    },
+    "imfs": [
+      {
+        "imf_idx": 0,
+        "peak_bpm": 29.99,
+        "in_band_frac": 0.052,
+        "in_band_snr": 3.91,
+        "rms": 0.04708,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 1,
+        "peak_bpm": 29.85,
+        "in_band_frac": 0.049,
+        "in_band_snr": 4.33,
+        "rms": 0.03395,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 2,
+        "peak_bpm": 23.79,
+        "in_band_frac": 0.437,
+        "in_band_snr": 4.96,
+        "rms": 0.02157,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 3,
+        "peak_bpm": 19.17,
+        "in_band_frac": 0.919,
+        "in_band_snr": 4.42,
+        "rms": 0.01944,
+        "picked_frac": true,
+        "picked_power": true
+      },
+      {
+        "imf_idx": 4,
+        "peak_bpm": 10.01,
+        "in_band_frac": 0.168,
+        "in_band_snr": 23.86,
+        "rms": 0.01158,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 5,
+        "peak_bpm": 10.01,
+        "in_band_frac": 0.004,
+        "in_band_snr": 17.72,
+        "rms": 0.00898,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 6,
+        "peak_bpm": 10.01,
+        "in_band_frac": 0.0,
+        "in_band_snr": 40.0,
+        "rms": 0.00525,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 7,
+        "peak_bpm": 11.01,
+        "in_band_frac": 0.0,
+        "in_band_snr": 14.67,
+        "rms": 0.00241,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 8,
+        "peak_bpm": 10.01,
+        "in_band_frac": 0.0,
+        "in_band_snr": 14.61,
+        "rms": 0.00316,
+        "picked_frac": false,
+        "picked_power": false
+      }
+    ],
+    "pick_in_band_fraction": {
+      "imf_idx": 3,
+      "rr_bpm": 19.17,
+      "in_band_snr": 4.42
+    },
+    "pick_in_band_power": {
+      "imf_idx": 3,
+      "rr_bpm": 19.17,
+      "in_band_snr": 4.42
+    },
+    "peak_pick_rr_bpm": 22.07,
+    "peak_pick_settled": false,
+    "peak_pick_confidence": "LOW",
+    "delta_frac_vs_polar": 6.65,
+    "delta_power_vs_polar": 6.65,
+    "delta_peak_vs_polar": 9.54
+  },
+  {
+    "run": "20260517_064107",
+    "wall_seconds": 179.83,
+    "frames_seen": 2487,
+    "fps_corrected": 13.83,
+    "polar_rr_median": 12.33,
+    "polar_hr_median": 81.0,
+    "polar_rr_n": 25,
+    "eemd": {
+      "trials": 50,
+      "noise_width": 0.05,
+      "max_imf": 8,
+      "n_imfs": 9,
+      "seconds": 0.9
+    },
+    "imfs": [
+      {
+        "imf_idx": 0,
+        "peak_bpm": 27.59,
+        "in_band_frac": 0.005,
+        "in_band_snr": 3.55,
+        "rms": 0.00094,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 1,
+        "peak_bpm": 24.07,
+        "in_band_frac": 0.013,
+        "in_band_snr": 7.93,
+        "rms": 0.00053,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 2,
+        "peak_bpm": 20.28,
+        "in_band_frac": 0.054,
+        "in_band_snr": 3.54,
+        "rms": 0.00044,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 3,
+        "peak_bpm": 28.69,
+        "in_band_frac": 0.549,
+        "in_band_snr": 3.55,
+        "rms": 0.00042,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 4,
+        "peak_bpm": 13.35,
+        "in_band_frac": 0.783,
+        "in_band_snr": 10.15,
+        "rms": 0.00046,
+        "picked_frac": true,
+        "picked_power": true
+      },
+      {
+        "imf_idx": 5,
+        "peak_bpm": 10.91,
+        "in_band_frac": 0.043,
+        "in_band_snr": 18.8,
+        "rms": 0.00026,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 6,
+        "peak_bpm": 10.05,
+        "in_band_frac": 0.0,
+        "in_band_snr": 20.99,
+        "rms": 0.00029,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 7,
+        "peak_bpm": 10.05,
+        "in_band_frac": 0.0,
+        "in_band_snr": 33.23,
+        "rms": 0.00044,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 8,
+        "peak_bpm": 10.03,
+        "in_band_frac": 0.0,
+        "in_band_snr": 10.76,
+        "rms": 0.00054,
+        "picked_frac": false,
+        "picked_power": false
+      }
+    ],
+    "pick_in_band_fraction": {
+      "imf_idx": 4,
+      "rr_bpm": 13.35,
+      "in_band_snr": 10.15
+    },
+    "pick_in_band_power": {
+      "imf_idx": 4,
+      "rr_bpm": 13.35,
+      "in_band_snr": 10.15
+    },
+    "peak_pick_rr_bpm": 12.36,
+    "peak_pick_settled": true,
+    "peak_pick_confidence": "MEDIUM",
+    "delta_frac_vs_polar": 1.02,
+    "delta_power_vs_polar": 1.02,
+    "delta_peak_vs_polar": 0.03
+  },
+  {
+    "run": "20260517_064421",
+    "wall_seconds": 145.81,
+    "frames_seen": 2012,
+    "fps_corrected": 13.799,
+    "polar_rr_median": 13.02,
+    "polar_hr_median": 88.0,
+    "polar_rr_n": 27,
+    "eemd": {
+      "trials": 50,
+      "noise_width": 0.05,
+      "max_imf": 8,
+      "n_imfs": 9,
+      "seconds": 0.86
+    },
+    "imfs": [
+      {
+        "imf_idx": 0,
+        "peak_bpm": 26.61,
+        "in_band_frac": 0.01,
+        "in_band_snr": 4.24,
+        "rms": 0.00199,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 1,
+        "peak_bpm": 22.94,
+        "in_band_frac": 0.018,
+        "in_band_snr": 4.56,
+        "rms": 0.00121,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 2,
+        "peak_bpm": 29.11,
+        "in_band_frac": 0.094,
+        "in_band_snr": 5.58,
+        "rms": 0.00096,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 3,
+        "peak_bpm": 13.24,
+        "in_band_frac": 0.778,
+        "in_band_snr": 4.07,
+        "rms": 0.00177,
+        "picked_frac": true,
+        "picked_power": true
+      },
+      {
+        "imf_idx": 4,
+        "peak_bpm": 11.37,
+        "in_band_frac": 0.065,
+        "in_band_snr": 7.35,
+        "rms": 0.00191,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 5,
+        "peak_bpm": 10.01,
+        "in_band_frac": 0.001,
+        "in_band_snr": 33.6,
+        "rms": 0.00204,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 6,
+        "peak_bpm": 10.76,
+        "in_band_frac": 0.0,
+        "in_band_snr": 16.25,
+        "rms": 0.01321,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 7,
+        "peak_bpm": 11.19,
+        "in_band_frac": 0.0,
+        "in_band_snr": 23.51,
+        "rms": 0.00688,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 8,
+        "peak_bpm": 10.28,
+        "in_band_frac": 0.0,
+        "in_band_snr": 16.55,
+        "rms": 0.01024,
+        "picked_frac": false,
+        "picked_power": false
+      }
+    ],
+    "pick_in_band_fraction": {
+      "imf_idx": 3,
+      "rr_bpm": 13.24,
+      "in_band_snr": 4.07
+    },
+    "pick_in_band_power": {
+      "imf_idx": 3,
+      "rr_bpm": 13.24,
+      "in_band_snr": 4.07
+    },
+    "peak_pick_rr_bpm": 11.32,
+    "peak_pick_settled": true,
+    "peak_pick_confidence": "MEDIUM",
+    "delta_frac_vs_polar": 0.22,
+    "delta_power_vs_polar": 0.22,
+    "delta_peak_vs_polar": -1.7
+  },
+  {
+    "run": "20260517_065958",
+    "wall_seconds": 129.96,
+    "frames_seen": 1741,
+    "fps_corrected": 13.396,
+    "polar_rr_median": 11.82,
+    "polar_hr_median": 83.0,
+    "polar_rr_n": 23,
+    "eemd": {
+      "trials": 50,
+      "noise_width": 0.05,
+      "max_imf": 8,
+      "n_imfs": 9,
+      "seconds": 1.3
+    },
+    "imfs": [
+      {
+        "imf_idx": 0,
+        "peak_bpm": 28.06,
+        "in_band_frac": 0.013,
+        "in_band_snr": 3.47,
+        "rms": 0.13364,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 1,
+        "peak_bpm": 21.49,
+        "in_band_frac": 0.011,
+        "in_band_snr": 4.57,
+        "rms": 0.11441,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 2,
+        "peak_bpm": 30.0,
+        "in_band_frac": 0.014,
+        "in_band_snr": 4.57,
+        "rms": 0.07409,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 3,
+        "peak_bpm": 23.67,
+        "in_band_frac": 0.064,
+        "in_band_snr": 4.87,
+        "rms": 0.0546,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 4,
+        "peak_bpm": 26.76,
+        "in_band_frac": 0.547,
+        "in_band_snr": 3.56,
+        "rms": 0.06612,
+        "picked_frac": true,
+        "picked_power": true
+      },
+      {
+        "imf_idx": 5,
+        "peak_bpm": 11.06,
+        "in_band_frac": 0.432,
+        "in_band_snr": 6.74,
+        "rms": 0.02924,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 6,
+        "peak_bpm": 11.09,
+        "in_band_frac": 0.009,
+        "in_band_snr": 24.42,
+        "rms": 0.04279,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 7,
+        "peak_bpm": 10.77,
+        "in_band_frac": 0.0,
+        "in_band_snr": 24.92,
+        "rms": 0.04017,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 8,
+        "peak_bpm": 10.82,
+        "in_band_frac": 0.0,
+        "in_band_snr": 14.17,
+        "rms": 0.04407,
+        "picked_frac": false,
+        "picked_power": false
+      }
+    ],
+    "pick_in_band_fraction": {
+      "imf_idx": 4,
+      "rr_bpm": 26.76,
+      "in_band_snr": 3.56
+    },
+    "pick_in_band_power": {
+      "imf_idx": 4,
+      "rr_bpm": 26.76,
+      "in_band_snr": 3.56
+    },
+    "peak_pick_rr_bpm": 10.2,
+    "peak_pick_settled": true,
+    "peak_pick_confidence": "HIGH",
+    "delta_frac_vs_polar": 14.94,
+    "delta_power_vs_polar": 14.94,
+    "delta_peak_vs_polar": -1.62
+  },
+  {
+    "run": "20260517_071225",
+    "wall_seconds": 124.8,
+    "frames_seen": 1631,
+    "fps_corrected": 13.069,
+    "polar_rr_median": 12.2,
+    "polar_hr_median": 83.0,
+    "polar_rr_n": 25,
+    "eemd": {
+      "trials": 50,
+      "noise_width": 0.05,
+      "max_imf": 8,
+      "n_imfs": 9,
+      "seconds": 1.38
+    },
+    "imfs": [
+      {
+        "imf_idx": 0,
+        "peak_bpm": 23.91,
+        "in_band_frac": 0.014,
+        "in_band_snr": 4.35,
+        "rms": 0.30509,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 1,
+        "peak_bpm": 19.31,
+        "in_band_frac": 0.005,
+        "in_band_snr": 4.46,
+        "rms": 0.27293,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 2,
+        "peak_bpm": 25.49,
+        "in_band_frac": 0.029,
+        "in_band_snr": 4.34,
+        "rms": 0.12987,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 3,
+        "peak_bpm": 29.77,
+        "in_band_frac": 0.245,
+        "in_band_snr": 5.38,
+        "rms": 0.10318,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 4,
+        "peak_bpm": 23.62,
+        "in_band_frac": 0.879,
+        "in_band_snr": 4.78,
+        "rms": 0.07805,
+        "picked_frac": true,
+        "picked_power": true
+      },
+      {
+        "imf_idx": 5,
+        "peak_bpm": 13.19,
+        "in_band_frac": 0.11,
+        "in_band_snr": 8.98,
+        "rms": 0.04684,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 6,
+        "peak_bpm": 10.0,
+        "in_band_frac": 0.001,
+        "in_band_snr": 20.83,
+        "rms": 0.03454,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 7,
+        "peak_bpm": 10.91,
+        "in_band_frac": 0.0,
+        "in_band_snr": 12.85,
+        "rms": 0.02706,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 8,
+        "peak_bpm": 10.82,
+        "in_band_frac": 0.0,
+        "in_band_snr": 18.63,
+        "rms": 0.01808,
+        "picked_frac": false,
+        "picked_power": false
+      }
+    ],
+    "pick_in_band_fraction": {
+      "imf_idx": 4,
+      "rr_bpm": 23.62,
+      "in_band_snr": 4.78
+    },
+    "pick_in_band_power": {
+      "imf_idx": 4,
+      "rr_bpm": 23.62,
+      "in_band_snr": 4.78
+    },
+    "peak_pick_rr_bpm": 26.61,
+    "peak_pick_settled": true,
+    "peak_pick_confidence": "MEDIUM",
+    "delta_frac_vs_polar": 11.42,
+    "delta_power_vs_polar": 11.42,
+    "delta_peak_vs_polar": 14.41
+  },
+  {
+    "run": "20260517_072337",
+    "wall_seconds": 165.32,
+    "frames_seen": 2119,
+    "fps_corrected": 12.818,
+    "polar_rr_median": 13.05,
+    "polar_hr_median": 78.0,
+    "polar_rr_n": 58,
+    "eemd": {
+      "trials": 50,
+      "noise_width": 0.05,
+      "max_imf": 8,
+      "n_imfs": 9,
+      "seconds": 0.89
+    },
+    "imfs": [
+      {
+        "imf_idx": 0,
+        "peak_bpm": 21.39,
+        "in_band_frac": 0.012,
+        "in_band_snr": 5.27,
+        "rms": 0.00104,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 1,
+        "peak_bpm": 15.65,
+        "in_band_frac": 0.016,
+        "in_band_snr": 4.1,
+        "rms": 0.00062,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 2,
+        "peak_bpm": 26.77,
+        "in_band_frac": 0.24,
+        "in_band_snr": 6.24,
+        "rms": 0.00061,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 3,
+        "peak_bpm": 20.85,
+        "in_band_frac": 0.91,
+        "in_band_snr": 4.45,
+        "rms": 0.00078,
+        "picked_frac": false,
+        "picked_power": true
+      },
+      {
+        "imf_idx": 4,
+        "peak_bpm": 11.91,
+        "in_band_frac": 0.522,
+        "in_band_snr": 17.16,
+        "rms": 0.00135,
+        "picked_frac": true,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 5,
+        "peak_bpm": 11.1,
+        "in_band_frac": 0.0,
+        "in_band_snr": 12.39,
+        "rms": 0.00158,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 6,
+        "peak_bpm": 10.01,
+        "in_band_frac": 0.0,
+        "in_band_snr": 12.88,
+        "rms": 0.00128,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 7,
+        "peak_bpm": 12.03,
+        "in_band_frac": 0.0,
+        "in_band_snr": 16.28,
+        "rms": 0.00072,
+        "picked_frac": false,
+        "picked_power": false
+      },
+      {
+        "imf_idx": 8,
+        "peak_bpm": 10.23,
+        "in_band_frac": 0.0,
+        "in_band_snr": 4.38,
+        "rms": 0.00054,
+        "picked_frac": false,
+        "picked_power": false
+      }
+    ],
+    "pick_in_band_fraction": {
+      "imf_idx": 4,
+      "rr_bpm": 11.91,
+      "in_band_snr": 17.16
+    },
+    "pick_in_band_power": {
+      "imf_idx": 3,
+      "rr_bpm": 20.85,
+      "in_band_snr": 4.45
+    },
+    "peak_pick_rr_bpm": 12.39,
+    "peak_pick_settled": true,
+    "peak_pick_confidence": "MEDIUM",
+    "delta_frac_vs_polar": -1.14,
+    "delta_power_vs_polar": 7.8,
+    "delta_peak_vs_polar": -0.66
+  }
+]
