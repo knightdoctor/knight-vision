@@ -16,10 +16,17 @@ PYTHON="${PYTHON:-$REPO/.venv-local/bin/python}"
 
 # Knobs — override via env for exploration.
 RR_BPM="${RR_BPM:-15}"
-AMPLITUDE_MM="${AMPLITUDE_MM:-5}"
-DURATION_S="${DURATION_S:-30}"
-FPS="${FPS:-15}"
+AMPLITUDE_MM="${AMPLITUDE_MM:-8}"
+DURATION_S="${DURATION_S:-20}"
+FPS="${FPS:-10}"
 TOLERANCE="${TOLERANCE:-2}"
+# Voxel downsample size for the point cloud. 0 = keep all StereoSGBM
+# pixels — needed for the smoke because at our 3 cm lidar_driver default
+# the ~8 mm chest motion gets quantised into the same voxel cell and the
+# FFT octave-errors onto 2× the true rate. Long-term solution lives with
+# task #78 (Gdańsk octave-error algorithm) once we add the L-overhang
+# rectification path.
+VOXEL_SIZE_M="${VOXEL_SIZE_M:-0}"
 
 SCENE="$HERE/scene.blend"
 FRAMES="$HERE/frames"
@@ -40,9 +47,10 @@ rm -rf "$FRAMES"
     --out "$FRAMES"
 
 echo ""
-echo "=== [3/4] Depth + point clouds ==="
+echo "=== [3/4] Depth + point clouds (voxel ${VOXEL_SIZE_M} m) ==="
 rm -rf "$DEPTH"
-"$PYTHON" "$HERE/depth.py" --frames "$FRAMES" --out "$DEPTH"
+"$PYTHON" "$HERE/depth.py" --frames "$FRAMES" --out "$DEPTH" \
+    --voxel-size-m "$VOXEL_SIZE_M"
 
 echo ""
 echo "=== [4/4] Smoke test ==="

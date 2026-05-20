@@ -163,7 +163,12 @@ def main():
     ap.add_argument("--out", type=Path, required=True,
                     help="Output directory (creates depth/ and cloud/)")
     ap.add_argument("--block-size", type=int, default=9)
-    ap.add_argument("--num-disparities", type=int, default=128)
+    # numDisparities must cover the max disparity in the scene:
+    #   d_max = fx · B / z_min.  For our smoke config (fx 1108 px, B 0.2 m,
+    #   z_min ≈ 0.3 m) that's d_max ≈ 740 px; round up to a multiple of 16
+    #   and add headroom. Lower this dramatically once cameras are further
+    #   from the subject or baseline shrinks.
+    ap.add_argument("--num-disparities", type=int, default=640)
     ap.add_argument("--voxel-size-m", type=float, default=0.03)
     args = ap.parse_args()
 
@@ -187,8 +192,16 @@ def main():
     if not L_files:
         sys.exit("ERROR: no PNG frames found in L/")
     n = len(L_files)
-    print(f"[depth] {n} stereo pairs · baseline {baseline_m:.3f} m · "
-          f"fx {fx:.1f} px · K[2,2] {K[2,2]} px")
+    # Cam A and Cam B are vertically separated, so the epipolar lines are
+    # vertical (along image columns). StereoSGBM expects horizontal epipolar
+    # lines (along image rows), so we transpose both inputs before matching
+    # and transpose the output disparity back. K still applies because
+    # transpose preserves fx (sensor is square) — we'll use fy=fx for depth.
+    # NB: this is the right move for parallel + axis-aligned vertical stereo.
+    # The MVP L-overhang config has convergent + pitched cameras and will
+    # need cv2.stereoRectify in Week 2.
+    print(f"[depth] {n} stereo pairs · vertical baseline {baseline_m:.3f} m · "
+          f"fx {fx:.1f} px · transpose-before-SGBM ON")
 
     for i, L_path in enumerate(L_files):
         R_path = frames / "R" / L_path.name
@@ -200,7 +213,17 @@ def main():
         if L is None or R is None:
             print(f"[depth] warn: failed to read pair {L_path.name}")
             continue
-        disp = matcher.compute(L, R)
+        # Vertical stereo, Cam A above Cam B. After CW rotation Cam A's
+        # imagery appears on the RIGHT of the rotated frame (since rotation
+        # maps high-v rows to high-u cols). For SGBM to produce *positive*
+        # disparity (its min is 0), the rotated LEFT input must be the
+        # camera whose imagery shifts the *more*-right of the rotated pair —
+        # which after CW rotation is Cam B (bottom). So swap the call
+        # order: pass Cam_B_rotated as "left" and Cam_A_rotated as "right".
+        L_rot = cv2.rotate(L, cv2.ROTATE_90_CLOCKWISE)   # = Cam A rotated
+        R_rot = cv2.rotate(R, cv2.ROTATE_90_CLOCKWISE)   # = Cam B rotated
+        disp_rot = matcher.compute(R_rot, L_rot)         # positive d
+        disp = cv2.rotate(disp_rot, cv2.ROTATE_90_COUNTERCLOCKWISE)
         depth = disparity_to_depth(disp, fx, baseline_m)
         cloud = depth_to_cloud_shared(depth, K, cam_a_loc, chest_centre,
                                       voxel_size_m=args.voxel_size_m)

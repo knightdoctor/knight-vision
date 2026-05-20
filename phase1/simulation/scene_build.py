@@ -47,13 +47,18 @@ DEFAULTS = {
     "infant_y_offset":     0.10,                # torso centre Y (head side +Y)
     "chest_excursion_mm":  5.0,                 # default for scene; render.py overrides
 
-    # Cameras — MVP L-overhang spec defaults
-    # Origin = chest centre (~10 cm above mattress top, on cot centreline)
-    "chest_centre_z":      None,                # computed = mattress_top_z + 0.10
-    "cam_a_offset":        (0.00, -0.05, 0.50), # 5 cm low-Y of chest, 50 cm above
-    "cam_b_offset":        (0.00, -0.05, 0.30), # 20 cm below A (200 mm baseline)
-    "cam_a_pitch_deg":     30.0,                # down-tilt
-    "cam_b_pitch_deg":     10.0,
+    # Cameras — Week-1 smoke geometry (simplified from MVP L-overhang).
+    # Cameras live directly low-Y of chest at 40 cm working distance,
+    # looking straight at chest centre. Vertical baseline is preserved
+    # (Cam A 100 mm above chest Z, Cam B 100 mm below — 200 mm baseline)
+    # so depth.py exercises the vertical-stereo pipeline. The L-overhang
+    # pitch-from-horizontal geometry (Cam A 30° down etc.) is deferred to
+    # Week 2 once the smoke confirms the algorithm port works.
+    "chest_centre_z":      None,                # computed = mattress_top_z + infant_torso_radius
+    "cam_a_offset":        (0.00, -0.40, 0.10),
+    "cam_b_offset":        (0.00, -0.40, -0.10),
+    "cam_a_pitch_deg":     0.0,                 # pure look-at; no extra pitch
+    "cam_b_pitch_deg":     0.0,
     "cam_resolution":      (1280, 800),
     "cam_horiz_fov_deg":   60.0,
 
