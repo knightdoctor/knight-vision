@@ -5,12 +5,28 @@
 #   bootstrap.sh [--recapture-bg] [--bg-duration N] [run_phase1 live flags...]
 #
 # Examples:
-#   bootstrap.sh --recapture-bg --viewer --duration 60
-#   bootstrap.sh --viewer --duration 60        # skip bg, reuse cached
+#   bootstrap.sh --recapture-bg              # bg + session, M1 defaults
+#   bootstrap.sh                             # skip bg, M1 defaults
+#   bootstrap.sh --duration 90               # override session duration
+#
+# M1-grade defaults baked into LIVE_DEFAULTS below: viewer on, peak-pick
+# RR method, raw-frames saved, radar sidecar recording, 30-min session.
+# Recordings inside the session are triggered from the viewer (REC/STOP
+# buttons / R/S keys); each REC press writes its own run_dir. Any flag
+# repeated in the user's CLI overrides the default (argparse takes last).
 set -euo pipefail
 
 PHASE1_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN=("$PHASE1_DIR/run.sh" "$PHASE1_DIR/run_phase1.py")
+
+# M1-grade defaults — see header comment. Edit here, not per-launch.
+LIVE_DEFAULTS=(
+    --viewer
+    --rr-method peak-pick
+    --save-raw
+    --record-radar
+    --duration 1800
+)
 
 RECAPTURE_BG=0
 BG_DURATION=30
@@ -41,5 +57,9 @@ if [[ "$RECAPTURE_BG" -eq 1 ]]; then
 fi
 
 echo
-echo "=== Live capture ==="
-exec "${RUN[@]}" --mode live --lidar "${LIVE_ARGS[@]}"
+echo "=== Live capture (M1 defaults + user overrides) ==="
+echo "    defaults: ${LIVE_DEFAULTS[*]}"
+if [[ ${#LIVE_ARGS[@]} -gt 0 ]]; then
+  echo "    overrides: ${LIVE_ARGS[*]}"
+fi
+exec "${RUN[@]}" --mode live --lidar "${LIVE_DEFAULTS[@]}" "${LIVE_ARGS[@]}"

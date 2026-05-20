@@ -58,6 +58,7 @@ TRACE  = (120, 220, 60)             # green — centroid-z trace
 _LOCK = threading.Lock()
 _state = {
     "frame_no":   0,
+    "n_pts":      0,     # raw LiDAR depth points this frame (for residual_ratio in /diag)
     "residuals":  np.empty((0, 3), dtype=float),
     "subject":    None,
     "chest":      None,   # chest-band subset of subject — the actual FFT input
@@ -71,6 +72,11 @@ _state = {
     "rr_snr":            None,
     "rr_conf":           None,
     "rr_n":       0,
+    # rr_history: last 32 per-window RR estimates with wall timestamps.
+    # Each entry: {"t": float, "rr_bpm": float, "peak": float|None,
+    #              "centroid": float|None, "snr": float, "conf": str}.
+    # Powers /diag's last-K BPM history and SNR-threshold-crossing flags.
+    "rr_history":        [],
     "frame_ts":   [],   # recent set_frame wall times for live fps calc
     # Radar sidecar state (PR Q 2026-05-18 viewer integration)
     "radar_pts":  np.empty((0, 3), dtype=np.float32),
@@ -139,18 +145,24 @@ app = Flask(__name__)
 
 
 def set_frame(frame_no: int, residuals: np.ndarray, subject,
-              n_clusters: int, cz: float, chest=None) -> None:
+              n_clusters: int, cz: float, chest=None,
+              n_pts: int = 0) -> None:
     """Push the latest pipeline frame data into shared viewer state.
 
     `chest` is the chest-band subset of `subject` that goes into the FFT.
     The viewer highlights it in CHEST colour so the operator can confirm
     by eye that the analysis window is sitting on torso, not head/legs.
     Pass None when the chest band couldn't be isolated — viewer will then
-    skip the highlight overlay (whole subject was used as the FFT input)."""
+    skip the highlight overlay (whole subject was used as the FFT input).
+
+    `n_pts` is the raw LiDAR depth point count for this frame (before any
+    voxel/background subtraction). Used by /diag to compute residual_ratio
+    against Phil's "5k/14k" Run 4 baseline."""
     with _LOCK:
         if _state["started_at"] is None:
             _state["started_at"] = time.time()
         _state["frame_no"]   = frame_no
+        _state["n_pts"]      = int(n_pts) if n_pts else 0
         _state["residuals"]  = residuals if residuals is not None else np.empty((0, 3))
         _state["subject"]    = subject
         _state["chest"]      = chest
@@ -188,11 +200,24 @@ def set_rr(rr_bpm: float, snr: float, confidence: str,
         _state["rr_snr"]           = float(snr)
         _state["rr_conf"]          = str(confidence)
         _state["rr_n"]            += 1
+        hist = _state["rr_history"]
+        hist.append({
+            "t":        time.time(),
+            "rr_bpm":   float(rr_bpm),
+            "peak":     (float(rr_bpm_peak) if rr_bpm_peak is not None else None),
+            "centroid": (float(rr_bpm_centroid) if rr_bpm_centroid is not None else None),
+            "snr":      float(snr),
+            "conf":     str(confidence),
+        })
+        # Keep last 32 — at 5 s/window that's ~160 s of context.
+        if len(hist) > 32:
+            del hist[: len(hist) - 32]
 
 
 def reset() -> None:
     with _LOCK:
         _state["frame_no"]   = 0
+        _state["n_pts"]      = 0
         _state["residuals"]  = np.empty((0, 3), dtype=float)
         _state["subject"]    = None
         _state["chest"]      = None
@@ -203,6 +228,7 @@ def reset() -> None:
         _state["rr_snr"]     = None
         _state["rr_conf"]    = None
         _state["rr_n"]       = 0
+        _state["rr_history"] = []
         _state["frame_ts"]   = []
         _state["radar_pts"]      = np.empty((0, 3), dtype=np.float32)
         _state["radar_n"]        = 0
@@ -1249,6 +1275,119 @@ def _compute_fps() -> Optional[float]:
     if span <= 0:
         return None
     return (len(ts) - 1) / span
+
+
+# Run 4 baseline (phase1/notes/peak_pick_rescore_2026-05-17.md and
+# dev_log_2026-05-16.md): the "good" recording against which subsequent
+# captures are judged. cz_std ~4 mm chest displacement, settled SNR 5.2,
+# 1 stable subject cluster, residuals ~5k of ~14k raw points (ratio 0.36).
+RUN4_BASELINE = {
+    "cz_std_mm":       4.0,
+    "settled_snr":     5.2,
+    "n_clusters":      1,
+    "residual_ratio":  5000 / 14000,
+    "n_residuals_raw": 5000,
+}
+
+
+@app.route("/diag")
+def diag():
+    """Single-shot QC diagnostic — see phase1/quality_check.py.
+
+    Adds derived metrics (cz_std, cz_span, residual_ratio), the last-K
+    per-window RR history, comparison-to-Run-4 deltas, and a set of
+    flag strings the QC tool can route on without re-deriving."""
+    with _LOCK:
+        cz_hist = list(_state["cz_history"])
+        rr_hist = list(_state["rr_history"])
+        # cz stats over the last 20 s — matches pipeline.rr_window_seconds
+        # so the std/span reflect the same data the FFT was operating on.
+        # 20 s × ~10 fps = ~200 samples; clamp to whatever's available.
+        tail_n = min(200, len(cz_hist))
+        cz_tail = [x for x in cz_hist[-tail_n:] if x is not None and x == x]
+        cz_std_mm  = float(np.std(cz_tail) * 1000.0)  if len(cz_tail) >= 8 else None
+        cz_span_mm = (float((max(cz_tail) - min(cz_tail)) * 1000.0)
+                      if len(cz_tail) >= 2 else None)
+        n_residuals = int(len(_state["residuals"]))
+        n_pts = int(_state["n_pts"])
+        n_clusters = int(_state["n_clusters"])
+        residual_ratio = (n_residuals / n_pts) if n_pts > 0 else None
+        fps = _compute_fps()
+        snr = _state["rr_snr"]
+        subject_pts = (0 if _state["subject"] is None
+                       else int(len(_state["subject"])))
+        chest_pts   = (0 if _state["chest"] is None
+                       else int(len(_state["chest"])))
+        n_pts_now = n_pts
+
+    flags: list[str] = []
+    if subject_pts == 0:
+        flags.append("no_subject_locked")
+    if cz_std_mm is not None and cz_std_mm > 12.0:
+        flags.append("cz_std_high")          # was 4 mm in Run 4
+    if cz_std_mm is not None and cz_std_mm < 1.5:
+        flags.append("cz_std_too_low")       # no breathing signal
+    if residual_ratio is not None and residual_ratio > 0.6:
+        flags.append("residuals_too_high")
+    if n_clusters > 3:
+        flags.append("cluster_count_high")   # > Run 4's single cluster
+    if snr is not None and snr < 3.0:
+        flags.append("snr_low")
+    elif snr is not None and snr >= 5.0:
+        flags.append("snr_high")
+    if fps is not None and fps < 8.0:
+        flags.append("fps_low")
+    # Cluster-count jumping: stdev > 1 across last 30 frames isn't in state;
+    # the QC tool can derive that from per_frame.log. Just flag the snapshot.
+    if rr_hist:
+        recent = rr_hist[-6:] if len(rr_hist) >= 6 else rr_hist
+        bpms = [r["rr_bpm"] for r in recent]
+        if len(bpms) >= 3 and float(np.std(bpms)) > 4.0:
+            flags.append("rr_unstable")
+
+    delta_vs_run4 = {
+        "cz_std_mm_delta":     (None if cz_std_mm is None
+                                else round(cz_std_mm - RUN4_BASELINE["cz_std_mm"], 2)),
+        "snr_delta":           (None if snr is None
+                                else round(float(snr) - RUN4_BASELINE["settled_snr"], 2)),
+        "n_clusters_delta":     n_clusters - RUN4_BASELINE["n_clusters"],
+        "residual_ratio_delta": (None if residual_ratio is None
+                                 else round(residual_ratio
+                                            - RUN4_BASELINE["residual_ratio"], 3)),
+    }
+
+    return jsonify({
+        "frame_no":         _state["frame_no"],
+        "fps":              fps,
+        "n_pts":            n_pts_now,
+        "n_residuals":      n_residuals,
+        "residual_ratio":   (round(residual_ratio, 3)
+                             if residual_ratio is not None else None),
+        "n_clusters":       n_clusters,
+        "subject_pts":      subject_pts,
+        "chest_pts":        chest_pts,
+        "cz":               _state["cz_history"][-1] if cz_hist else None,
+        "cz_std_mm":        None if cz_std_mm is None else round(cz_std_mm, 2),
+        "cz_span_mm":       None if cz_span_mm is None else round(cz_span_mm, 2),
+        "cz_tail_n":        len(cz_tail),
+        "rr_bpm":           _state["rr_bpm"],
+        "rr_bpm_peak":      _state["rr_bpm_peak"],
+        "rr_bpm_centroid":  _state["rr_bpm_centroid"],
+        "rr_method":        _state["rr_method"],
+        "rr_snr":           snr,
+        "rr_conf":          _state["rr_conf"],
+        "rr_n":             _state["rr_n"],
+        "rr_history":       rr_hist,
+        "radar_rr_bpm":     _state["radar_rr_bpm"],
+        "radar_rr_snr":     _state["radar_rr_snr"],
+        "radar_rr_n":       _state["radar_rr_n"],
+        "gt":               get_gt_current(),
+        "recording":        _control["recording"],
+        "record_seq":       _control["record_seq"],
+        "baseline_run4":    RUN4_BASELINE,
+        "delta_vs_run4":    delta_vs_run4,
+        "flags":            flags,
+    })
 
 
 @app.route("/gt", methods=["POST"])

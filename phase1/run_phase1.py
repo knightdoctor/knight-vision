@@ -495,7 +495,7 @@ class _Orchestrator:
 
         if self._viewer is not None:
             self._viewer.set_frame(i + 1, residuals, subject, n_clusters, cz,
-                                   chest=chest)
+                                   chest=chest, n_pts=n_pts)
             if self.pipe is not None:
                 self.push_rr_to_viewer(self.pipe)
             if self.rgb_enabled and (i % self._rgb_every_n == 0):
