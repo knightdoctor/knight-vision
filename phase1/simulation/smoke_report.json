@@ -1,0 +1,15 @@
+{
+  "ground_truth_bpm": 15.0,
+  "tolerance_bpm": 2.0,
+  "recovered_bpm": 29.886,
+  "delta_bpm": 14.886,
+  "snr": 4.079,
+  "confidence": "MEDIUM",
+  "rr_method": "peak-pick",
+  "fps": 10.05,
+  "n_frames": 200,
+  "n_chest_valid": 200,
+  "cz_std_mm": 0.08,
+  "cz_span_mm": 0.287,
+  "pass": false
+}
