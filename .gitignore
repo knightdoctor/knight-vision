@@ -26,3 +26,12 @@ __pycache__/
 
 # SDK auto-generated logs (grows on every run)
 phase1/Log/
+
+# CubeEye raw depth recordings — large AVI + NPY files
+# Replay from CSV logs only; raw frames stay on local disk
+*.avi
+*.npy
+phase1/sim_output/
+
+# Virtual environments
+.venv/
