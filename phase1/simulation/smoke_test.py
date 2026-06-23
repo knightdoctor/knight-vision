@@ -43,7 +43,7 @@ from phase1.respiratory import extract_rr_from_signal
 # Used for forward-modelling the ideal chest signal in
 # amplitude_recovery_report. Importing from the sibling depth module is the
 # cleanest way to share the camera-pose maths.
-from depth import camera_world_pose_opencv
+from depth import camera_world_pose_opencv_from_intr
 
 # ── Synthetic-scene geometry — must mirror scene_build.py DEFAULTS ─────────
 # (Hardcoded here rather than read from intrinsics.json so the smoke test can
@@ -74,7 +74,10 @@ def chest_centroid_z(cloud: np.ndarray, intr: dict) -> float:
     cx, cy_blender, cz_blender = intr["chest_centre_world"]
     chest_shared = (cx, cz_blender, cy_blender)
     half_x = 0.08    # ± torso radius (lateral)
-    half_y = 0.05    # ± 5 cm around chest centre (top half of torso, above mattress)
+    half_y = 0.10    # ± 10 cm around chest centre — wide enough to catch the
+                     # upper torso surface that pitched-down cameras see (the
+                     # B1 L-overhang variant only sees the top hemisphere of
+                     # the torso, so cloud points sit at shared-Y > 0.18)
     half_z = 0.15    # ± half torso length (forward range)
     mask = (
         (np.abs(cloud[:, 0] - chest_shared[0]) <= half_x)
@@ -134,9 +137,7 @@ def _ideal_chest_signals_per_frame(sk_vals: np.ndarray, intr: dict,
     bx, by_b, bz_b = intr["chest_centre_world"]
     chest_centre_blender = np.array([bx, by_b, bz_b])
     chest_shared = (bx, bz_b, by_b)
-    R_a, T_a = camera_world_pose_opencv(
-        tuple(intr["cam_a"]["location"]),
-        tuple(intr["chest_centre_world"]))
+    R_a, T_a = camera_world_pose_opencv_from_intr(intr, "cam_a")
 
     excursion_m = CHEST_EXCURSION_MM_AT_SK1 / 1000.0
     sig_y, sig_z, sig_depth = [], [], []
@@ -172,9 +173,7 @@ def _measured_chest_signals_per_frame(clouds, intr: dict,
                                       half_z: float) -> dict:
     bx, by_b, bz_b = intr["chest_centre_world"]
     chest_shared = (bx, bz_b, by_b)
-    R_a, T_a = camera_world_pose_opencv(
-        tuple(intr["cam_a"]["location"]),
-        tuple(intr["chest_centre_world"]))
+    R_a, T_a = camera_world_pose_opencv_from_intr(intr, "cam_a")
     sig_y, sig_z, sig_depth = [], [], []
     for c in clouds:
         if c.shape[0] == 0:
@@ -204,7 +203,7 @@ def _measured_chest_signals_per_frame(clouds, intr: dict,
 
 def amplitude_recovery_report(clouds, intr: dict, gt_rows: list,
                               half_x: float = 0.08,
-                              half_y: float = 0.05,
+                              half_y: float = 0.10,
                               half_z: float = 0.15) -> dict:
     sk_vals = np.array([float(r["shape_key_value"]) for r in gt_rows])
     ideal = _ideal_chest_signals_per_frame(sk_vals, intr, half_x, half_y, half_z)

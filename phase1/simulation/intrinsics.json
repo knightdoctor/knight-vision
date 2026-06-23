@@ -2,20 +2,21 @@
   "cam_a": {
     "location": [
       0.0,
-      -0.30000000000000004,
-      0.28
+      -0.33299999999999996,
+      0.43
     ],
     "pitch_deg": 0.0
   },
   "cam_b": {
     "location": [
       0.0,
-      -0.30000000000000004,
-      0.07999999999999999
+      -0.383,
+      0.34299999999999997
     ],
     "pitch_deg": 0.0
   },
-  "baseline_m": 0.20000000000000004,
+  "parallel_pitch_deg": 30.0,
+  "baseline_m": 0.08700000000000002,
   "resolution": [
     1280,
     800
@@ -28,5 +29,6 @@
   ],
   "chest_excursion_mm": 5.0,
   "mattress_top_z": 0.1,
+  "variant": "cloth",
   "shared_frame_note": "Blender frame is X right, Y forward (away from sensor), Z up. depth.py converts to shared Knight Vision frame (X right, Y up, Z forward) via permutation (x, z, y)."
 }

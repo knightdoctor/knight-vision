@@ -47,17 +47,17 @@ DEFAULTS = {
     "infant_y_offset":     0.10,                # torso centre Y (head side +Y)
     "chest_excursion_mm":  5.0,                 # default for scene; render.py overrides
 
-    # Cameras — Week-1 smoke geometry (simplified from MVP L-overhang).
-    # Cameras live directly low-Y of chest at 40 cm working distance,
-    # looking straight at chest centre. Vertical baseline is preserved
-    # (Cam A 100 mm above chest Z, Cam B 100 mm below — 200 mm baseline)
-    # so depth.py exercises the vertical-stereo pipeline. The L-overhang
-    # pitch-from-horizontal geometry (Cam A 30° down etc.) is deferred to
-    # Week 2 once the smoke confirms the algorithm port works.
+    # Cameras — Week-2 #2 B1 parallel-axis L-overhang.
+    # See feedback in dev_log_2026-06-22.md: strict world-vertical baseline
+    # + pitched cams gives Tz residual that forces R1 to rotate chest off-
+    # image; offsetting Cam B along cam-local −Y keeps R1 ≈ I. 100 mm
+    # baseline chosen so chest disp ≈ 222 px fits inside image_width/2
+    # = 400 px at 0.50 m working distance.
     "chest_centre_z":      None,                # computed = mattress_top_z + infant_torso_radius
-    "cam_a_offset":        (0.00, -0.40, 0.10),
-    "cam_b_offset":        (0.00, -0.40, -0.10),
-    "cam_a_pitch_deg":     0.0,                 # pure look-at; no extra pitch
+    "cam_a_offset":        (0.00, -0.433, 0.25),
+    "cam_b_offset":        (0.00, -0.483, 0.163),
+    "cam_parallel_pitch_deg": 30.0,
+    "cam_a_pitch_deg":     0.0,                 # unused in parallel-axis mode
     "cam_b_pitch_deg":     0.0,
     "cam_resolution":      (1280, 800),
     "cam_horiz_fov_deg":   60.0,
@@ -65,6 +65,21 @@ DEFAULTS = {
     # Lighting
     "ir_led_offset":       (0.00, -0.10, 0.55), # roughly co-located with Cam A
     "ir_led_energy":       50.0,                # watts (passive scene power)
+
+    # Texture / projector variants for B1 surface-texture comparison
+    # (control / cloth / projector). Set via --variant CLI arg in main().
+    "variant":             "control",
+    # Cloth variant — noise on the torso material's albedo + bump
+    "cloth_noise_scale":   100.0,   # cycles per noise-unit; coarser weave that survives sub-pixel sampling
+    "cloth_albedo_contrast": 0.30,  # ± fraction around base albedo (moderate; not skin-physical, but realistic for textured swaddle/blanket)
+    "cloth_bump_strength": 0.10,    # micro-relief
+    # Projector variant — overhead emission plane with a sparse-dot
+    # noise texture (Intel RealSense-style speckle for stereo correspondence)
+    "projector_height_above_chest": 0.40,    # m, plane height above chest
+    "projector_spot_size_deg":      50.0,    # unused with emission-plane impl
+    "projector_energy":             6.0,     # W/m² emission peak per dot
+    "projector_noise_scale":        50.0,    # generated-coord scale; sparse projection dots
+    "projector_dot_density_thresh": 0.70,    # color-ramp threshold; higher = sparser dots
 }
 
 
@@ -89,6 +104,109 @@ def make_material(name: str, base_color: tuple, roughness: float = 0.5) -> bpy.t
         if "Roughness" in bsdf.inputs:
             bsdf.inputs["Roughness"].default_value = roughness
     return mat
+
+
+def make_fabric_material(name: str, base_color: tuple,
+                         noise_scale: float, albedo_contrast: float,
+                         bump_strength: float,
+                         roughness: float = 0.7) -> bpy.types.Material:
+    """Procedural fabric: noise texture modulates albedo by ±contrast and
+    drives a subtle bump. Spatial frequency = noise_scale cycles per metre
+    (≈ 1/scale metres per cycle). Used for the B1 'cloth' variant — gives
+    SGBM matchable surface texture that's still realistic for fabric.
+
+    Uses Generated texture coords (object-bound, deterministic across the
+    surface) rather than the default Spherical UV which collapses noise
+    near the UV poles.
+    """
+    mat = bpy.data.materials.new(name=name)
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    bsdf = nodes.get("Principled BSDF")
+    if bsdf is None:
+        return mat
+
+    # Generated coords → noise → albedo modulation
+    tex_coord = nodes.new("ShaderNodeTexCoord")
+    noise = nodes.new("ShaderNodeTexNoise")
+    noise.inputs["Scale"].default_value = noise_scale
+    noise.inputs["Detail"].default_value = 2.0
+    noise.inputs["Roughness"].default_value = 0.5
+    links.new(tex_coord.outputs["Generated"], noise.inputs["Vector"])
+
+    # Push noise through a color ramp to sharpen contrast: low end darker,
+    # high end at base.
+    ramp = nodes.new("ShaderNodeValToRGB")
+    ramp.color_ramp.interpolation = "LINEAR"
+    ramp.color_ramp.elements[0].position = 0.3
+    dark = max(0.0, 1.0 - 2.0 * albedo_contrast)
+    ramp.color_ramp.elements[0].color = (
+        base_color[0] * dark, base_color[1] * dark, base_color[2] * dark, 1.0)
+    ramp.color_ramp.elements[1].position = 0.7
+    ramp.color_ramp.elements[1].color = (*base_color, 1.0)
+    links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
+    links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
+
+    if bump_strength > 0:
+        bump = nodes.new("ShaderNodeBump")
+        bump.inputs["Strength"].default_value = bump_strength
+        links.new(noise.outputs["Fac"], bump.inputs["Height"])
+        links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+
+    bsdf.inputs["Roughness"].default_value = roughness
+    return mat
+
+
+def add_ir_projector(params):
+    """Variant 'projector': overhead emission plane with a noise-driven
+    sparse dot pattern in its texture. Approximates a RealSense-style
+    active-stereo IR speckle projector.
+
+    Implementation note: Eevee's shader-node support on light data is
+    flaky for spot-light textures — the noise → emission pattern on a
+    LIGHT object often renders as a uniform colour wash. Instead, we use
+    a downward-facing emission plane held above the cot, with the dot
+    pattern baked into the plane's material. The plane casts the speckle
+    onto everything below it via direct illumination."""
+    chest_z = params["mattress_top_z"] + params["infant_torso_radius"]
+    yoff = params["infant_y_offset"]
+    height = params["projector_height_above_chest"]
+
+    plane_loc = (0.0, yoff, chest_z + height)
+    bpy.ops.mesh.primitive_plane_add(size=0.40, location=plane_loc)
+    plane = bpy.context.active_object
+    plane.name = "ir_projector_plane"
+    # Flip so the emission face points DOWN (-Z world)
+    plane.rotation_euler = (math.radians(180.0), 0.0, 0.0)
+
+    # Material: noise → color ramp (sparse dots) → emission
+    mat = bpy.data.materials.new(name="ir_projector_pattern")
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    for n in list(nodes):
+        nodes.remove(n)
+    tex_coord = nodes.new("ShaderNodeTexCoord")
+    noise = nodes.new("ShaderNodeTexNoise")
+    noise.inputs["Scale"].default_value = params["projector_noise_scale"]
+    noise.inputs["Detail"].default_value = 0.0
+    ramp = nodes.new("ShaderNodeValToRGB")
+    ramp.color_ramp.interpolation = "CONSTANT"
+    ramp.color_ramp.elements[0].position = params["projector_dot_density_thresh"]
+    ramp.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 1.0)
+    ramp.color_ramp.elements[1].position = 1.0
+    bright = float(params["projector_energy"])
+    ramp.color_ramp.elements[1].color = (bright, bright, bright, 1.0)
+    emission = nodes.new("ShaderNodeEmission")
+    emission.inputs["Strength"].default_value = 1.0
+    output = nodes.new("ShaderNodeOutputMaterial")
+    links.new(tex_coord.outputs["Generated"], noise.inputs["Vector"])
+    links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
+    links.new(ramp.outputs["Color"], emission.inputs["Color"])
+    links.new(emission.outputs["Emission"], output.inputs["Surface"])
+    plane.data.materials.append(mat)
+    return plane
 
 
 def add_cot(params):
@@ -138,7 +256,14 @@ def add_infant(params):
     torso = bpy.context.active_object
     torso.name = "infant_torso"
     torso.scale = (tr, tl / 2, tr)
-    skin = make_material("skin", (0.85, 0.70, 0.62), roughness=0.55)
+    if params.get("variant") == "cloth":
+        skin = make_fabric_material(
+            "torso_fabric", (0.85, 0.70, 0.62),
+            noise_scale=params["cloth_noise_scale"],
+            albedo_contrast=params["cloth_albedo_contrast"],
+            bump_strength=params["cloth_bump_strength"])
+    else:
+        skin = make_material("skin", (0.85, 0.70, 0.62), roughness=0.55)
     torso.data.materials.append(skin)
     # Apply scale so the rest pose has scale=1 → shape keys + lateral
     # rendering match expectations.
@@ -177,20 +302,21 @@ def add_infant(params):
 
 
 def add_camera(name: str, location, pitch_deg: float, params) -> bpy.types.Object:
-    """Place a camera at `location` (world coords) pointing -Y with `pitch_deg`
-    down-tilt. Returns the Blender camera object so render.py can grab it."""
+    """Place a camera at `location`. Parallel-axis mode (if
+    cam_parallel_pitch_deg set) gives every cam the same orientation;
+    otherwise falls back to look-at-target."""
     cam_data = bpy.data.cameras.new(name=name + "_data")
     cam = bpy.data.objects.new(name, cam_data)
     bpy.context.collection.objects.link(cam)
     cam.location = location
-    # Blender default cam points -Z. We want -Y + downtilt.
-    # Rotate: +90° about X to look along +Y (toward subject), then add downtilt.
-    # Actually: from the L-overhang position above-and-low-Y of chest, the
-    # cam needs to look toward (+Y, -Z). Build the rotation from a "look at
-    # chest centre" target.
-    target = (0.0, params["infant_y_offset"], params["mattress_top_z"]
-              + params["infant_torso_radius"])
-    cam.rotation_euler = _look_at_euler(cam.location, target, pitch_offset_deg=pitch_deg)
+    parallel = params.get("cam_parallel_pitch_deg")
+    if parallel is not None:
+        cam.rotation_euler = (math.radians(90.0 - parallel), 0.0, 0.0)
+    else:
+        target = (0.0, params["infant_y_offset"], params["mattress_top_z"]
+                  + params["infant_torso_radius"])
+        cam.rotation_euler = _look_at_euler(cam.location, target,
+                                            pitch_offset_deg=pitch_deg)
     # Intrinsics
     res_x, res_y = params["cam_resolution"]
     cam_data.sensor_width = 6.4  # mm — FLIR Blackfly S sensor approximate
@@ -269,11 +395,16 @@ def main():
                     help="Path to write scene.blend")
     ap.add_argument("--chest-excursion-mm", type=float, default=None,
                     help="Override chest excursion (used by shape key)")
+    ap.add_argument("--variant", type=str, default=None,
+                    choices=["control", "cloth", "projector"],
+                    help="B1 surface-texture variant")
     args = ap.parse_args(user_argv)
 
     params = dict(DEFAULTS)
     if args.chest_excursion_mm is not None:
         params["chest_excursion_mm"] = args.chest_excursion_mm
+    if args.variant is not None:
+        params["variant"] = args.variant
 
     clear_scene()
     add_cot(params)
@@ -291,6 +422,8 @@ def main():
     add_camera("Cam_A", cam_a_loc, params["cam_a_pitch_deg"], params)
     add_camera("Cam_B", cam_b_loc, params["cam_b_pitch_deg"], params)
     add_lighting(params)
+    if params.get("variant") == "projector":
+        add_ir_projector(params)
     configure_render(params)
 
     # Save intrinsics + extrinsics alongside scene.blend so depth.py doesn't
@@ -306,12 +439,17 @@ def main():
             "location": cam_b_loc,
             "pitch_deg": params["cam_b_pitch_deg"],
         },
+        # Parallel-axis pitch tells depth.py / smoke_test.py to construct
+        # camera world rotation analytically from this shared value rather
+        # than computing look-at-chest from each cam's position.
+        "parallel_pitch_deg": params.get("cam_parallel_pitch_deg"),
         "baseline_m":      cam_a_loc[2] - cam_b_loc[2],   # vertical baseline
         "resolution":      params["cam_resolution"],
         "horiz_fov_deg":   params["cam_horiz_fov_deg"],
         "chest_centre_world": (0.0, yoff, chest_z),
         "chest_excursion_mm": params["chest_excursion_mm"],
         "mattress_top_z":  params["mattress_top_z"],
+        "variant":         params.get("variant", "control"),
         "shared_frame_note": (
             "Blender frame is X right, Y forward (away from sensor), Z up. "
             "depth.py converts to shared Knight Vision frame "

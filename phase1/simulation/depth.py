@@ -52,13 +52,16 @@ import numpy as np
 # R_cv_to_world = R_blender_to_world @ diag(1, -1, -1).
 _BLENDER_TO_OPENCV = np.diag([1.0, -1.0, -1.0]).astype(np.float64)
 
-# 90°-CW image rotation = 90°-CCW camera-frame rotation around +Z.
-# A point at (x, y, z) in the OLD camera frame is at (y, -x, z) in the
-# NEW (post-image-CW-rotation) camera frame. So P_new = R_OLD_TO_NEW @ P_old
-# with R_OLD_TO_NEW = [[0, 1, 0], [-1, 0, 0], [0, 0, 1]] (which is R_z(-90°)).
-_R_OLD_TO_NEW_CWROT = np.array([[0.0, 1.0, 0.0],
-                                [-1.0, 0.0, 0.0],
-                                [0.0, 0.0, 1.0]])
+# 90°-CW image rotation. Derive R_OLD_TO_NEW from the pixel-level rule:
+# (col_old, row_old) → (h_old - 1 - row_old, col_old). Equivalently in cam
+# coords (X right, Y down, Z forward):
+#   new image right (new +X) ← old image down (old +Y), so old +X → new +Y
+#   new image down  (new +Y) ← old image LEFT (-old +X), so old +Y → new -X
+#   new optical axis unchanged: old +Z → new +Z
+# Hence R_OLD_TO_NEW columns (images of old basis vectors) = (+Y, -X, +Z):
+_R_OLD_TO_NEW_CWROT = np.array([[ 0.0, -1.0, 0.0],
+                                [ 1.0,  0.0, 0.0],
+                                [ 0.0,  0.0, 1.0]])
 _R_NEW_TO_OLD_CWROT = _R_OLD_TO_NEW_CWROT.T
 
 
@@ -99,9 +102,37 @@ def camera_world_pose_opencv(loc, target):
     return R_cv, T_world
 
 
+def _parallel_axis_rotation_blender(pitch_deg: float) -> np.ndarray:
+    """Blender cam-to-world rotation for a cam facing +Y pitched `pitch_deg`
+    below horizontal, no yaw, no roll. Columns are cam's local +X, +Y, +Z
+    axes expressed in world."""
+    p = math.radians(pitch_deg)
+    cp, sp = math.cos(p), math.sin(p)
+    return np.array([
+        [1.0, 0.0,  0.0],
+        [0.0,  sp, -cp],
+        [0.0,  cp,  sp],
+    ])
+
+
+def camera_world_pose_opencv_from_intr(intr: dict, cam_key: str):
+    """Resolve (R_cv_to_world, T_world) from intrinsics.json. Uses
+    parallel-axis pitch when ``intr["parallel_pitch_deg"]`` is set
+    (independent of position), otherwise falls back to look-at-chest."""
+    loc = tuple(intr[cam_key]["location"])
+    parallel = intr.get("parallel_pitch_deg")
+    if parallel is not None:
+        R_blender = _parallel_axis_rotation_blender(float(parallel))
+        R_cv = R_blender @ _BLENDER_TO_OPENCV
+        T_world = np.asarray(loc, dtype=np.float64)
+        return R_cv, T_world
+    return camera_world_pose_opencv(loc, tuple(intr["chest_centre_world"]))
+
+
 def apply_cw_pre_rotation(R_cv_to_world: np.ndarray) -> np.ndarray:
     """Camera-to-world rotation after the camera's image is rotated 90° CW.
-    Equivalent to rotating the camera 90° CCW around its optical (Z) axis."""
+    P_world = R_pre_to_world @ P_pre + T_cam, where P_pre = R_OLD_TO_NEW @
+    P_old. Substituting: R_pre_to_world = R_old_to_world @ R_NEW_TO_OLD."""
     return R_cv_to_world @ _R_NEW_TO_OLD_CWROT
 
 
@@ -262,13 +293,8 @@ def main():
     K_orig = make_K(intr)
     w_orig, h_orig = intr["resolution"]
 
-    cam_a_loc = tuple(intr["cam_a"]["location"])
-    cam_b_loc = tuple(intr["cam_b"]["location"])
-    chest_centre = tuple(intr["chest_centre_world"])
-
-    # Original OpenCV-convention world poses (look-at chest).
-    R_a_cv, T_a_world = camera_world_pose_opencv(cam_a_loc, chest_centre)
-    R_b_cv, T_b_world = camera_world_pose_opencv(cam_b_loc, chest_centre)
+    R_a_cv, T_a_world = camera_world_pose_opencv_from_intr(intr, "cam_a")
+    R_b_cv, T_b_world = camera_world_pose_opencv_from_intr(intr, "cam_b")
 
     # Pre-rotate both cameras 90° CW (in image) so the world baseline
     # (vertical between Cam A above and Cam B below) becomes a horizontal
@@ -279,36 +305,59 @@ def main():
     K_rot, w_rot, h_rot = rotate_K_cw(K_orig, w_orig, h_orig)
     image_size = (int(w_rot), int(h_rot))
 
-    R_a_to_b, t_a_to_b = relative_pose(
-        R_a_pre, T_a_world, R_b_pre, T_b_world)
+    # Decide which cam goes as cam-1 (left) to stereoRectify so the chest
+    # disparity comes out positive (SGBM searches only [0, num_disp)).
+    # Project the chest centre into each pre-rotated cam frame and pick
+    # whichever has the LARGER u — that one is the "left" in SGBM
+    # convention. Same scene point at larger u in left image → smaller u
+    # in right image → positive disparity.
+    chest_w = np.asarray(intr["chest_centre_world"], dtype=np.float64)
+    def _u_in_prerot(R_cv, T_world):
+        P_cam = R_cv.T @ (chest_w - T_world)
+        P_pre = _R_OLD_TO_NEW_CWROT @ P_cam
+        return float(K_rot[0, 0] * P_pre[0] / P_pre[2] + K_rot[0, 2])
+    u_a = _u_in_prerot(R_a_cv, T_a_world)
+    u_b = _u_in_prerot(R_b_cv, T_b_world)
+    if u_b > u_a:
+        # Cam B is the "left" cam — swap roles for stereoRectify.
+        cam1_R, cam1_T, cam1_label = R_b_pre, T_b_world, "Cam_B"
+        cam2_R, cam2_T, cam2_label = R_a_pre, T_a_world, "Cam_A"
+        cam1_path_key, cam2_path_key = "R", "L"   # frames/R is Cam_B, frames/L is Cam_A
+    else:
+        cam1_R, cam1_T, cam1_label = R_a_pre, T_a_world, "Cam_A"
+        cam2_R, cam2_T, cam2_label = R_b_pre, T_b_world, "Cam_B"
+        cam1_path_key, cam2_path_key = "L", "R"
 
-    rect = setup_rectification(K_rot, image_size, R_a_to_b, t_a_to_b)
+    R_1_to_2, t_1_to_2 = relative_pose(cam1_R, cam1_T, cam2_R, cam2_T)
+
+    rect = setup_rectification(K_rot, image_size, R_1_to_2, t_1_to_2)
     R1 = rect["R1"]
     Q = rect["Q"]
-    print(f"[depth] world cam-cam {np.linalg.norm(t_a_to_b):.4f} m · "
+    print(f"[depth] world cam-cam {np.linalg.norm(t_1_to_2):.4f} m · "
           f"rectified baseline {rect['baseline_m']:.4f} m · "
           f"axis {rect['rect_axis']} · "
           f"fx_rect {rect['P1'][0,0]:.1f} px")
-    print(f"[depth] t_a_to_b after CW pre-rotation = "
-          f"({t_a_to_b[0]:+.3f}, {t_a_to_b[1]:+.3f}, {t_a_to_b[2]:+.3f}) m")
+    print(f"[depth] SGBM cam-1 = {cam1_label} (chest pre-rot u={u_b if cam1_label=='Cam_B' else u_a:.1f}), "
+          f"cam-2 = {cam2_label} (chest pre-rot u={u_a if cam1_label=='Cam_B' else u_b:.1f})")
+    print(f"[depth] t_1_to_2 after CW pre-rotation = "
+          f"({t_1_to_2[0]:+.3f}, {t_1_to_2[1]:+.3f}, {t_1_to_2[2]:+.3f}) m")
 
-    # Combined rotation taking a point in the rectified-Cam-A frame all the
-    # way to Blender world: P_world = R_combined @ P_rect + T_a_world.
-    # P_rect       = R1 @ P_pre_camA       (rectification rotates pre-rot Cam A)
-    # P_pre_camA   = R_pre_to_old @ P_camA = R_NEW_TO_OLD @ P_camA — but our
-    # R_a_pre already absorbed that transform (R_a_pre maps the pre-rotated
-    # camera frame to world). So:
-    # P_world = R_a_pre @ R1.T @ P_rect + T_a_world.
-    R_rect_to_world = R_a_pre @ R1.T
+    # Combined rotation taking a point in the rectified cam-1 frame to
+    # world: P_world = R_rect_to_world @ P_rect + T_cam1_world.
+    # Cam-1 may be Cam A or Cam B depending on which had the larger
+    # chest u in pre-rotated space (see selection logic above).
+    R_rect_to_world = cam1_R @ R1.T
+    T_origin_world = cam1_T
 
     out = args.out.resolve()
     (out / "depth").mkdir(parents=True, exist_ok=True)
     (out / "cloud").mkdir(parents=True, exist_ok=True)
     matcher = make_stereo_matcher(args.num_disparities, args.block_size)
 
-    L_files = sorted((frames / "L").glob("*.png"))
+    # Iterate by cam-1's source files (whichever cam was selected as left).
+    L_files = sorted((frames / cam1_path_key).glob("*.png"))
     if not L_files:
-        sys.exit("ERROR: no PNG frames found in L/")
+        sys.exit(f"ERROR: no PNG frames found in {cam1_path_key}/")
     n = len(L_files)
     fx_rect = float(rect["P1"][0, 0])
     z_min_resolvable = fx_rect * rect["baseline_m"] / args.num_disparities
@@ -322,9 +371,9 @@ def main():
     scene_max_disp = 0.0
 
     for i, L_path in enumerate(L_files):
-        R_path = frames / "R" / L_path.name
+        R_path = frames / cam2_path_key / L_path.name
         if not R_path.exists():
-            print(f"[depth] warn: no R pair for {L_path.name}, skipping")
+            print(f"[depth] warn: no {cam2_path_key} pair for {L_path.name}, skipping")
             continue
         L = cv2.imread(str(L_path), cv2.IMREAD_GRAYSCALE)
         R = cv2.imread(str(R_path), cv2.IMREAD_GRAYSCALE)
@@ -356,7 +405,7 @@ def main():
         if pts_rect_valid.shape[0] == 0:
             cloud_shared = np.empty((0, 3), dtype=np.float32)
         else:
-            pts_world = pts_rect_valid @ R_rect_to_world.T + T_a_world[None, :]
+            pts_world = pts_rect_valid @ R_rect_to_world.T + T_origin_world[None, :]
             cloud_shared = blender_world_to_shared(pts_world).astype(
                 np.float32)
             cloud_shared = voxel_downsample(cloud_shared, args.voxel_size_m)
